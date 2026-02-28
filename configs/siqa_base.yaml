@@ -1,0 +1,30 @@
+seed: 3407
+
+data:
+  ref_dir: /data/SIQA/Data/Train/Train/Ref
+  dist_dir: /data/SIQA/Data/Train/Train/Dist
+  score_file: /data/SIQA/Data/Train/Train/Train_scores.xlsx
+  image_size: 224
+
+model:
+  backbone: dinov2_vits14
+  num_classes: 6
+  freeze_backbone: true
+
+train:
+  epochs: 30
+  batch_size: 16
+  num_workers: 4
+  lr: 0.0002
+  weight_decay: 0.01
+  grad_clip: 1.0
+  val_ratio: 0.2
+  label_smoothing: 0.05
+  loss_weight_ce: 1.0
+  loss_weight_mse: 1.0
+
+debug:
+  log_every: 10
+
+output:
+  work_dir: /data/SIQA/workdirs/siqa_dinov2_vits14

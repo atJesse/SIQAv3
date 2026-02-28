@@ -1,0 +1,6 @@
+torch
+torchvision
+PyYAML
+numpy
+Pillow
+openpyxl

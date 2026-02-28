@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual env
+.venv/
+venv/
+.env
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Training outputs
+workdirs/
+submission/
+*.log
+
+# Model checkpoints / weights
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Data archives and extracted data
+Data/
+*.zip
+
+# Cache
+.cache/
+/root/.cache/
+
+# Large generated files
+*.npy
+*.npz
+*.csv
+
+# Keep source-controlled configs/docs/scripts
+!README.md
+!requirements.txt
+!configs/
+!configs/*.yaml
+!*.py
