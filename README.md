@@ -1,62 +1,80 @@
-# SIQA Challenge Pipeline (FR-IQA, Semantic-Focused)
+# SIQA Dual-Backbone FR-IQA (Swin + CLIP)
 
 ## English
 
-This repository provides a reproducible pipeline for a semantic full-reference IQA challenge:
-- Input: paired `(Ref, Dist)` images.
-- Label: score in `0..5`.
-- Official metric: `0.6 * SROCC + 0.4 * PLCC`.
+This project is a semantic full-reference IQA pipeline with very small training data (510 pairs), score labels `0..5`, and official metrics `SROCC / PLCC`.
 
-### 1) Architecture
-The model is implemented in `siqa/model.py`:
-- Backbone: `DINOv2` (default `dinov2_vits14`) used in siamese form for both `Ref` and `Dist`.
-- Feature fusion: concatenate `[feat_ref, feat_dist, abs(feat_ref - feat_dist)]`.
-- Head: MLP classifier producing 6 logits (for score classes `0..5`).
-- Continuous prediction: expected score from class probabilities:
+### 1) Core Architecture (Teacher-Requested)
+Implemented in `siqa/model.py` as a Siamese network with **two frozen pretrained backbones**:
+- Backbone A (structure-aware): `Swin-T` (`swin_tiny_patch4_window7_224`, ImageNet pretrained)
+- Backbone B (semantic-aware): `CLIP Vision` (default `clip_vit_l14_336`, can switch to `clip_vit_b32`)
 
-$$
-\hat{y}=\sum_{i=0}^{5} i\cdot \mathrm{softmax}(\mathrm{logits})_i
-$$
+For each pair `(Ref, Dist)`, model extracts:
+- $F_{swin\_ref}$, $F_{swin\_dist}$
+- $F_{clip\_ref}$, $F_{clip\_dist}$
 
-### 2) Loss Design
-Training loss in `train_siqa.py` is a weighted hybrid:
+### 2) Explicit Cosine Similarity Injection
+To break the “quality-only shortcut”, the model explicitly injects CLIP cosine similarity:
 
 $$
-\mathcal{L}=\lambda_{ce}\,\mathcal{L}_{CE}(\text{logits}, y_{cls})+\lambda_{mse}\,\mathcal{L}_{MSE}(\hat{y}, y)
+S_{cos}=\frac{F_{clip\_ref}\cdot F_{clip\_dist}}{\|F_{clip\_ref}\|\,\|F_{clip\_dist}\|}
 $$
 
-Current config (`configs/siqa_base.yaml`):
-- `loss_weight_ce = 1.0`
-- `loss_weight_mse = 1.0`
-- `label_smoothing = 0.05`
+Fusion uses:
+- $Diff_{swin}=|F_{swin\_ref}-F_{swin\_dist}|$
+- $Diff_{clip}=|F_{clip\_ref}-F_{clip\_dist}|$
+- $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},F_{clip\_dist},Diff_{clip},S_{cos})$
 
-### 3) Data Preprocessing
-Implemented in `siqa/dataset.py`:
-- Parse `Train_scores.xlsx` via `openpyxl`.
-- Paired load by filename from `Ref/` and `Dist/`.
-- Different image sizes/aspect ratios are handled by `ResizePadSquare(image_size)`:
-  - keep aspect ratio,
-  - resize by long side,
-  - zero-pad to square.
-- Normalization uses ImageNet mean/std.
+Then a required anti-overfitting bottleneck is applied:
+- `Linear -> BN -> SiLU -> Dropout(0.5)`
+- default `bottleneck_dim=256`
 
-### 4) Training Behavior Observed
-From `workdirs/siqa_dinov2_vits14/train.log`:
-- Training loss decreases steadily (approx `3.5 -> 0.3`).
-- Validation score peaks early (`best score = 0.7936` around epoch 5), then fluctuates lower.
+### 3) Semantic Gate / Veto Mechanism
+In inference/eval (`model.eval()`), a hard semantic gate is enabled:
+- If `S_cos < semantic_gate_threshold` (default `0.4`), force logits toward class `0`
+- This makes semantically unrelated pairs strongly biased to near-zero scores
 
-This indicates early overfitting under small-data setting: optimization loss keeps improving while ranking/generalization metrics stop improving.
+### 4) Training Objective
+`train_siqa.py` still uses hybrid objective:
 
-### 5) Script Roles
-- `train_siqa.py`: train/val/checkpoint pipeline.
-- `predict_siqa.py`: generic inference utility (uses training score table style dataset).
-- `infer_val_submission.py`: **submission-oriented inference script** for Val/Test folders; writes:
-  - `prediction.csv`
-  - `readme.txt`
+$$
+\mathcal{L}=\lambda_{ce}\mathcal{L}_{CE}(logits,y_{cls})+\lambda_{mse}\mathcal{L}_{MSE}(\hat{y},y)
+$$
 
-For final submission-style inference, use `infer_val_submission.py`.
+Prediction score:
 
-### 6) Quick Start
+$$
+\hat{y}=\sum_{i=0}^{5} i\cdot softmax(logits)_i
+$$
+
+### 5) China-Friendly Download / Offline First
+Because servers in China may have unstable external access:
+- CLIP supports local-first loading:
+  - `model.clip_local_dir`
+  - `model.clip_local_files_only: true`
+- Swin supports local checkpoint loading:
+  - `model.swin_local_path`
+
+If no local files are given:
+- CLIP may require `HF_ENDPOINT=https://hf-mirror.com`
+- Swin may download from `torchvision` model hub once
+
+### 6) New Model Config Keys
+In `configs/siqa_base.yaml`:
+- `model.swin_name`
+- `model.clip_name`
+- `model.freeze_backbones`
+- `model.swin_local_path`
+- `model.clip_local_dir`
+- `model.clip_local_files_only`
+- `model.clip_interpolate_pos_encoding`
+- `model.bottleneck_dim`
+- `model.bottleneck_dropout`
+- `model.semantic_gate_enabled`
+- `model.semantic_gate_threshold`
+- `model.gate_logit_strength`
+
+### 7) Quick Start
 Install:
 ```bash
 pip install -r requirements.txt
@@ -67,73 +85,116 @@ Train:
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
 
+Train with HF mirror (for China):
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=1
+python3 train_siqa.py --config configs/siqa_base.yaml
+```
+
 Submission inference:
 ```bash
 python3 infer_val_submission.py \
   --config configs/siqa_base.yaml \
-  --ckpt /data/SIQA/workdirs/siqa_dinov2_vits14/checkpoints/best.pth \
-  --out_dir /data/SIQA/submission
+  --ckpt /data/SIQAdn2/workdirs/siqa_dual_swin_clip/checkpoints/best.pth \
+  --out_dir /data/SIQAdn2/submission
 ```
+
+### 8) CLIP Semantic Distribution Analysis Tool
+To analyze the relationship between discrete labels (`0..5`) and CLIP cosine similarity on all training pairs:
+
+```bash
+python3 tools/analyze_clip_semantic_distribution.py \
+  --config configs/siqa_base.yaml \
+  --output_dir tools/output_clip_semantic_analysis
+```
+
+Outputs:
+- `clip_cosine_per_pair.csv`: per-pair `img_name, score, score_cls, cos_sim`
+- `clip_cosine_class_summary.csv`: class-wise cosine range/percentiles/statistics
+- `clip_cosine_global_summary.json`: Pearson/Spearman/linear-fit (`R^2`)
+- `clip_score_relationship.png`: visualization (scatter + trend)
 
 ---
 
 ## 中文
 
-本仓库提供语义全参考 IQA 挑战赛的可复现流程：
-- 输入：成对图像 `(Ref, Dist)`。
-- 标签：`0..5` 分。
-- 官方指标：`0.6 * SROCC + 0.4 * PLCC`。
+这是一个小样本（510 对）语义全参考 IQA 项目，标签范围 `0..5`，评价指标是 `SROCC / PLCC`。
 
-### 1) 架构说明
-模型在 `siqa/model.py` 中：
-- 骨干：`DINOv2`（默认 `dinov2_vits14`），Ref/Dist 共享同一骨干（siamese）。
-- 融合：拼接 `[feat_ref, feat_dist, abs(feat_ref - feat_dist)]`。
-- 头部：MLP 输出 6 维 logits（对应 `0..5` 类）。
-- 连续分数：对 logits 做 softmax 后计算期望分数：
+### 1) 按老师意见实现的核心架构
+`siqa/model.py` 已改为 **双骨干孪生网络**，并默认冻结两套预训练参数：
+- Backbone A（结构感知）：`Swin-T`（`swin_tiny_patch4_window7_224`，ImageNet 预训练）
+- Backbone B（语义对齐）：`CLIP Vision`（默认 `clip_vit_l14_336`，可改 `clip_vit_b32`）
 
-$$
-\hat{y}=\sum_{i=0}^{5} i\cdot \mathrm{softmax}(\mathrm{logits})_i
-$$
+对每个 `(Ref, Dist)`，提取四组特征：
+- $F_{swin\_ref}$, $F_{swin\_dist}$
+- $F_{clip\_ref}$, $F_{clip\_dist}$
 
-### 2) Loss 设计
-训练损失在 `train_siqa.py` 中采用加权混合损失：
+### 2) 显式引入 CLIP 余弦相似度
+为打破“只看画质、不看语义”的捷径，显式加入：
 
 $$
-\mathcal{L}=\lambda_{ce}\,\mathcal{L}_{CE}(\text{logits}, y_{cls})+\lambda_{mse}\,\mathcal{L}_{MSE}(\hat{y}, y)
+S_{cos}=\frac{F_{clip\_ref}\cdot F_{clip\_dist}}{\|F_{clip\_ref}\|\,\|F_{clip\_dist}\|}
 $$
 
-当前配置（`configs/siqa_base.yaml`）：
-- `loss_weight_ce = 1.0`
-- `loss_weight_mse = 1.0`
-- `label_smoothing = 0.05`
+融合方式：
+- $Diff_{swin}=|F_{swin\_ref}-F_{swin\_dist}|$
+- $Diff_{clip}=|F_{clip\_ref}-F_{clip\_dist}|$
+- $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},F_{clip\_dist},Diff_{clip},S_{cos})$
 
-### 3) 数据预处理
-在 `siqa/dataset.py` 中实现：
-- 使用 `openpyxl` 读取 `Train_scores.xlsx`。
-- 按文件名在 `Ref/` 与 `Dist/` 做配对读取。
-- 针对尺寸/比例不一致，使用 `ResizePadSquare(image_size)`：
-  - 等比缩放（按长边），
-  - 再补边到方形。
-- 最后做 ImageNet 均值方差归一化。
+然后立即经过防过拟合瓶颈层：
+- `Linear -> BN -> SiLU -> Dropout(0.5)`
+- 默认降维到 `256`（可改 `128`）
 
-### 4) 当前观察到的训练现象
-根据 `workdirs/siqa_dinov2_vits14/train.log`：
-- 训练损失持续下降（约 `3.5 -> 0.3`）。
-- 验证指标在早期达到峰值（`best score = 0.7936`，约第 5 epoch），后续波动下降。
+### 3) 语义门控/否决机制
+在推理与验证阶段（`model.eval()`）启用硬阈值门控：
+- 当 `S_cos < semantic_gate_threshold`（默认 `0.4`）
+- 直接把 logits 强制偏向 `0` 分类别
 
-这说明小样本场景下出现了早期过拟合：loss 继续下降，但排序/泛化指标不再提升。
+这样对“语义完全不相关但画质看起来好”的样本会更强地压低分数。
 
-### 5) 脚本分工
-- `train_siqa.py`：训练/验证/checkpoint。
-- `predict_siqa.py`：通用推理脚本（按训练集分数表式数据组织）。
-- `infer_val_submission.py`：**面向提交的推理脚本**，直接输出：
-  - `prediction.csv`
-  - `readme.txt`
+### 4) 损失与输出
+训练仍采用混合损失：
 
-最终提交流程建议使用 `infer_val_submission.py`。
+$$
+\mathcal{L}=\lambda_{ce}\mathcal{L}_{CE}(logits,y_{cls})+\lambda_{mse}\mathcal{L}_{MSE}(\hat{y},y)
+$$
 
-### 6) 快速使用
-安装：
+输出分数：
+
+$$
+\hat{y}=\sum_{i=0}^{5} i\cdot softmax(logits)_i
+$$
+
+### 5) 中国服务器下载与离线优先
+考虑国内网络环境，已支持本地优先：
+- CLIP 本地优先：
+  - `model.clip_local_dir`
+  - `model.clip_local_files_only: true`
+- Swin 本地权重：
+  - `model.swin_local_path`
+
+若未提供本地文件：
+- CLIP 建议设置 `HF_ENDPOINT=https://hf-mirror.com`
+- Swin 可能在首次从 `torchvision` 下载一次权重
+
+### 6) 新增配置项
+`configs/siqa_base.yaml` 已新增：
+- `model.swin_name`
+- `model.clip_name`
+- `model.freeze_backbones`
+- `model.swin_local_path`
+- `model.clip_local_dir`
+- `model.clip_local_files_only`
+- `model.clip_interpolate_pos_encoding`
+- `model.bottleneck_dim`
+- `model.bottleneck_dropout`
+- `model.semantic_gate_enabled`
+- `model.semantic_gate_threshold`
+- `model.gate_logit_strength`
+
+### 7) 常用命令
+安装依赖：
 ```bash
 pip install -r requirements.txt
 ```
@@ -143,10 +204,32 @@ pip install -r requirements.txt
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
 
+国内镜像训练：
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=1
+python3 train_siqa.py --config configs/siqa_base.yaml
+```
+
 提交式推理：
 ```bash
 python3 infer_val_submission.py \
   --config configs/siqa_base.yaml \
-  --ckpt /data/SIQA/workdirs/siqa_dinov2_vits14/checkpoints/best.pth \
-  --out_dir /data/SIQA/submission
+  --ckpt /data/SIQAdn2/workdirs/siqa_dual_swin_clip/checkpoints/best.pth \
+  --out_dir /data/SIQAdn2/submission
 ```
+
+### 8) CLIP 语义分布分析工具
+用于分析训练集 510 对图像中，离散评分（`0..5`）与 CLIP 余弦相似度之间的关系：
+
+```bash
+python3 tools/analyze_clip_semantic_distribution.py \
+  --config configs/siqa_base.yaml \
+  --output_dir tools/output_clip_semantic_analysis
+```
+
+输出文件：
+- `clip_cosine_per_pair.csv`：逐样本 `img_name, score, score_cls, cos_sim`
+- `clip_cosine_class_summary.csv`：各分数类别余弦相似度范围/分位数/统计量
+- `clip_cosine_global_summary.json`：Pearson/Spearman/线性拟合（含 `R^2`）
+- `clip_score_relationship.png`：可视化图（散点 + 趋势）

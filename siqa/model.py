@@ -1,55 +1,208 @@
-from typing import Tuple
+import os
+from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import Swin_T_Weights, swin_t
 
 
 class SiameseSemanticIQA(nn.Module):
-    def __init__(self, num_classes: int = 6, backbone_name: str = "dinov2_vits14", freeze_backbone: bool = True):
+    def __init__(
+        self,
+        num_classes: int = 6,
+        swin_name: str = "swin_tiny_patch4_window7_224",
+        clip_name: str = "clip_vit_b32",
+        freeze_backbones: bool = True,
+        swin_local_path: str = "",
+        clip_local_dir: str = "",
+        clip_local_files_only: bool = False,
+        clip_interpolate_pos_encoding: bool = True,
+        bottleneck_dim: int = 256,
+        bottleneck_dropout: float = 0.5,
+        semantic_gate_enabled: bool = True,
+        semantic_gate_threshold: float = 0.4,
+        gate_logit_strength: float = 12.0,
+    ):
         super().__init__()
 
-        self.backbone_name = backbone_name
-        self.backbone, self.feature_dim = self._build_backbone(backbone_name)
+        self.swin_name = swin_name
+        self.clip_name = clip_name
+        self.clip_interpolate_pos_encoding = bool(clip_interpolate_pos_encoding)
+        self.semantic_gate_enabled = bool(semantic_gate_enabled)
+        self.semantic_gate_threshold = float(semantic_gate_threshold)
+        self.gate_logit_strength = float(gate_logit_strength)
 
-        if freeze_backbone:
-            for param in self.backbone.parameters():
+        self.swin_backbone, self.swin_feature_dim = self._build_swin_backbone(
+            swin_name,
+            swin_local_path=swin_local_path,
+        )
+        self.clip_backbone, self.clip_feature_dim = self._build_clip_backbone(
+            clip_name,
+            clip_local_dir=clip_local_dir,
+            clip_local_files_only=clip_local_files_only,
+        )
+
+        if freeze_backbones:
+            for param in self.swin_backbone.parameters():
+                param.requires_grad = False
+            for param in self.clip_backbone.parameters():
                 param.requires_grad = False
 
-        fusion_dim = self.feature_dim * 3
+        fusion_dim = self.swin_feature_dim * 3 + self.clip_feature_dim * 3 + 1
+        self.bottleneck = nn.Sequential(
+            nn.Linear(fusion_dim, bottleneck_dim),
+            nn.BatchNorm1d(bottleneck_dim),
+            nn.SiLU(),
+            nn.Dropout(bottleneck_dropout),
+        )
         self.head = nn.Sequential(
-            nn.Linear(fusion_dim, 512),
-            nn.BatchNorm1d(512),
+            nn.Linear(bottleneck_dim, 128),
             nn.SiLU(),
-            nn.Dropout(0.25),
-            nn.Linear(512, 128),
-            nn.SiLU(),
-            nn.Dropout(0.10),
+            nn.Dropout(0.20),
             nn.Linear(128, num_classes),
         )
         self.register_buffer("score_weights", torch.arange(0, num_classes, dtype=torch.float32))
 
-    def _build_backbone(self, backbone_name: str):
-        if backbone_name.startswith("dinov2"):
-            model = torch.hub.load("facebookresearch/dinov2", backbone_name)
-            feature_dim = 384 if "vits" in backbone_name else 768
-            return model, feature_dim
+    def _resolve_clip_model_id(self, clip_name: str) -> str:
+        alias_map = {
+            "clip_vit_b32": "openai/clip-vit-base-patch32",
+            "clip_vit_l14": "openai/clip-vit-large-patch14",
+            "clip_vit_l14_336": "openai/clip-vit-large-patch14-336",
+        }
+        if clip_name in alias_map:
+            return alias_map[clip_name]
+        if "/" in clip_name:
+            return clip_name
+        raise ValueError(
+            "Unsupported CLIP backbone alias. Use one of "
+            "{'clip_vit_b32','clip_vit_l14','clip_vit_l14_336'} or a HuggingFace model id."
+        )
 
-        raise ValueError(f"Unsupported backbone: {backbone_name}")
+    def _load_swin_local_state_dict(self, model: nn.Module, path: str) -> None:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Swin local checkpoint not found: {path}")
+        state = torch.load(path, map_location="cpu")
+        if isinstance(state, dict):
+            if "model" in state and isinstance(state["model"], dict):
+                state = state["model"]
+            elif "state_dict" in state and isinstance(state["state_dict"], dict):
+                state = state["state_dict"]
+        if not isinstance(state, dict):
+            raise RuntimeError(f"Invalid Swin checkpoint format: {path}")
+        cleaned: Dict[str, torch.Tensor] = {}
+        for key, value in state.items():
+            if key.startswith("module."):
+                key = key[len("module.") :]
+            cleaned[key] = value
+        missing, unexpected = model.load_state_dict(cleaned, strict=False)
+        if missing:
+            raise RuntimeError(f"Swin checkpoint missing keys ({len(missing)}): {missing[:5]}")
+        if unexpected:
+            raise RuntimeError(f"Swin checkpoint unexpected keys ({len(unexpected)}): {unexpected[:5]}")
 
-    def extract_features(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self.backbone(x)
-        if feat.ndim > 2:
-            feat = feat.flatten(1)
-        return feat
+    def _build_swin_backbone(self, swin_name: str, swin_local_path: str = ""):
+        if swin_name != "swin_tiny_patch4_window7_224":
+            raise ValueError("Currently only 'swin_tiny_patch4_window7_224' is supported for Swin backbone")
 
-    def forward(self, ref_img: torch.Tensor, dist_img: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        feat_ref = self.extract_features(ref_img)
-        feat_dist = self.extract_features(dist_img)
-        feat_diff = torch.abs(feat_ref - feat_dist)
-        fused = torch.cat([feat_ref, feat_dist, feat_diff], dim=1)
+        if swin_local_path:
+            model = swin_t(weights=None)
+            self._load_swin_local_state_dict(model, swin_local_path)
+            return model, int(model.head.in_features)
 
+        try:
+            model = swin_t(weights=Swin_T_Weights.IMAGENET1K_V1)
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to load pretrained Swin-T from torchvision. "
+                "For servers in China, pre-download the Swin checkpoint and set model.swin_local_path."
+            ) from exc
+        return model, int(model.head.in_features)
+
+    def _build_clip_backbone(self, clip_name: str, clip_local_dir: str = "", clip_local_files_only: bool = False):
+        try:
+            from transformers import CLIPVisionModel
+        except ImportError as exc:
+            raise RuntimeError("transformers is required for CLIP-ViT backbone") from exc
+
+        if clip_local_dir and os.path.isdir(clip_local_dir):
+            model_id = clip_local_dir
+            local_files_only = True
+        else:
+            model_id = self._resolve_clip_model_id(clip_name)
+            local_files_only = bool(clip_local_files_only)
+        try:
+            model = CLIPVisionModel.from_pretrained(model_id, local_files_only=local_files_only)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load CLIP backbone '{model_id}'. "
+                "This usually happens when HuggingFace is unreachable. "
+                "If you are in mainland China, set HF_ENDPOINT=https://hf-mirror.com "
+                "or set model.clip_local_dir to a local downloaded model path."
+            ) from exc
+        feature_dim = int(model.config.hidden_size)
+        return model, feature_dim
+
+    def extract_swin_features(self, x: torch.Tensor) -> torch.Tensor:
+        feat = self.swin_backbone.features(x)
+        feat = self.swin_backbone.norm(feat)
+        feat = self.swin_backbone.permute(feat)
+        feat = self.swin_backbone.avgpool(feat)
+        return torch.flatten(feat, 1)
+
+    def extract_clip_features(self, x: torch.Tensor) -> torch.Tensor:
+        outputs = self.clip_backbone(
+            pixel_values=x,
+            interpolate_pos_encoding=self.clip_interpolate_pos_encoding,
+        )
+        if outputs.pooler_output is not None:
+            return outputs.pooler_output
+        return outputs.last_hidden_state[:, 0, :]
+
+    def forward(
+        self,
+        ref_img: torch.Tensor,
+        dist_img: torch.Tensor,
+        return_aux: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        feat_swin_ref = self.extract_swin_features(ref_img)
+        feat_swin_dist = self.extract_swin_features(dist_img)
+        feat_clip_ref = self.extract_clip_features(ref_img)
+        feat_clip_dist = self.extract_clip_features(dist_img)
+
+        diff_swin = torch.abs(feat_swin_ref - feat_swin_dist)
+        diff_clip = torch.abs(feat_clip_ref - feat_clip_dist)
+
+        cos_sim = F.cosine_similarity(feat_clip_ref, feat_clip_dist, dim=1).unsqueeze(1)
+        fused = torch.cat(
+            [
+                feat_swin_ref,
+                feat_swin_dist,
+                diff_swin,
+                feat_clip_ref,
+                feat_clip_dist,
+                diff_clip,
+                cos_sim,
+            ],
+            dim=1,
+        )
+
+        fused = self.bottleneck(fused)
         logits = self.head(fused)
+
+        gate_mask = torch.zeros_like(cos_sim.squeeze(1), dtype=torch.bool)
+        if self.semantic_gate_enabled and (not self.training):
+            gate_mask = cos_sim.squeeze(1) < self.semantic_gate_threshold
+            if torch.any(gate_mask):
+                logits = logits.clone()
+                logits[gate_mask] = -self.gate_logit_strength
+                logits[gate_mask, 0] = self.gate_logit_strength
+
         probs = F.softmax(logits, dim=1)
         expected_scores = torch.sum(probs * self.score_weights, dim=1)
+        if return_aux:
+            return logits, expected_scores, {
+                "cos_sim": cos_sim.squeeze(1),
+                "gate_mask": gate_mask,
+            }
         return logits, expected_scores

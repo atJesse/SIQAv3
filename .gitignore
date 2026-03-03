@@ -15,7 +15,7 @@ venv/
 
 # Training outputs
 workdirs/
-submission/
+#submission/
 *.log
 
 # Model checkpoints / weights

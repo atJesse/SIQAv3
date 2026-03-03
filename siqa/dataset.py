@@ -63,23 +63,27 @@ class ResizePadSquare:
         return TF.pad(img, [left, top, right, bottom], fill=0)
 
 
-def build_train_transform(image_size: int) -> transforms.Compose:
+def build_train_transform(image_size: int, mean=None, std=None) -> transforms.Compose:
+    mean = mean or [0.485, 0.456, 0.406]
+    std = std or [0.229, 0.224, 0.225]
     return transforms.Compose(
         [
             ResizePadSquare(image_size),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=mean, std=std),
         ]
     )
 
 
-def build_eval_transform(image_size: int) -> transforms.Compose:
+def build_eval_transform(image_size: int, mean=None, std=None) -> transforms.Compose:
+    mean = mean or [0.485, 0.456, 0.406]
+    std = std or [0.229, 0.224, 0.225]
     return transforms.Compose(
         [
             ResizePadSquare(image_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=mean, std=std),
         ]
     )
 

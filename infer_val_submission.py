@@ -7,9 +7,8 @@ import time
 import torch
 import yaml
 from PIL import Image
-from torchvision import transforms
 
-from siqa.dataset import ResizePadSquare
+from siqa.dataset import build_eval_transform
 from siqa.model import SiameseSemanticIQA
 
 
@@ -60,23 +59,30 @@ def main():
         if not os.path.exists(os.path.join(args.dist_dir, name)):
             raise FileNotFoundError(f"Missing dist image: {name}")
 
-    transform = transforms.Compose(
-        [
-            ResizePadSquare(cfg["data"]["image_size"]),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+    mean = cfg["data"].get("normalize_mean", [0.48145466, 0.4578275, 0.40821073])
+    std = cfg["data"].get("normalize_std", [0.26862954, 0.26130258, 0.27577711])
+    transform = build_eval_transform(cfg["data"]["image_size"], mean=mean, std=std)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SiameseSemanticIQA(
         num_classes=cfg["model"]["num_classes"],
-        backbone_name=cfg["model"]["backbone"],
-        freeze_backbone=False,
+        swin_name=cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"),
+        clip_name=cfg["model"].get("clip_name", "clip_vit_b32"),
+        freeze_backbones=False,
+        swin_local_path=cfg["model"].get("swin_local_path", ""),
+        clip_local_dir=cfg["model"].get("clip_local_dir", ""),
+        clip_local_files_only=cfg["model"].get("clip_local_files_only", False),
+        clip_interpolate_pos_encoding=cfg["model"].get("clip_interpolate_pos_encoding", True),
+        bottleneck_dim=cfg["model"].get("bottleneck_dim", 256),
+        bottleneck_dropout=cfg["model"].get("bottleneck_dropout", 0.5),
+        semantic_gate_enabled=cfg["model"].get("semantic_gate_enabled", True),
+        semantic_gate_threshold=cfg["model"].get("semantic_gate_threshold", 0.4),
+        gate_logit_strength=cfg["model"].get("gate_logit_strength", 12.0),
     ).to(device)
 
     state = torch.load(args.ckpt, map_location=device)
-    model.load_state_dict(state["model"])
+    model_state = state["model"] if isinstance(state, dict) and "model" in state else state
+    model.load_state_dict(model_state)
     model.eval()
 
     rows = []
@@ -101,7 +107,7 @@ def main():
         f.write(f"runtime per video [s] : {runtime_per_image:.4f}\n")
         f.write(f"CPU[1] / GPU[0] : {0 if torch.cuda.is_available() else 1}\n")
         f.write("Extra Data [1] / No Extra Data [0] : 1\n")
-        f.write("Other description : Siamese DINOv2 feature-difference IQA with expected-score head.\n")
+        f.write("Other description : Dual-backbone Siamese IQA (Swin+CLIP) with cosine semantic feature and semantic gate veto.\n")
 
     print(f"Saved: {out_csv}")
     print(f"Saved: {out_txt}")

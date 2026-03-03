@@ -1,0 +1,11 @@
+{
+  "n_samples": 510,
+  "clip_model_source": "/root/.cache/huggingface/hub/models--openai--clip-vit-large-patch14-336/snapshots/ce19dc912ca5cd21c8a653c79e251e808ccabcd1",
+  "pearson_score_cos": 0.7479985464211331,
+  "spearman_score_cos": 0.7674661887792499,
+  "linear_fit": {
+    "slope": 7.464381526276629,
+    "intercept": -2.648250987428867,
+    "r2": 0.5595018254481297
+  }
+}

@@ -5,26 +5,42 @@ data:
   dist_dir: /data/SIQA/Data/Train/Train/Dist
   score_file: /data/SIQA/Data/Train/Train/Train_scores.xlsx
   image_size: 224
+  normalize_mean: [0.48145466, 0.4578275, 0.40821073]
+  normalize_std: [0.26862954, 0.26130258, 0.27577711]
 
 model:
-  backbone: dinov2_vits14
+  swin_name: swin_tiny_patch4_window7_224
+  clip_name: clip_vit_l14_336
   num_classes: 6
-  freeze_backbone: true
+  freeze_backbones: true
+  swin_local_path: /root/.cache/torch/hub/checkpoints/swin_t-704ceda3.pth
+  clip_local_dir: /root/.cache/huggingface/hub/models--openai--clip-vit-large-patch14-336/snapshots/ce19dc912ca5cd21c8a653c79e251e808ccabcd1
+  clip_local_files_only: true
+  clip_interpolate_pos_encoding: true
+  bottleneck_dim: 256
+  bottleneck_dropout: 0.5
+  semantic_gate_enabled: true
+  semantic_gate_threshold: 0.4
+  gate_logit_strength: 12.0
 
 train:
-  epochs: 30
-  batch_size: 16
+  epochs: 10
+  batch_size: 32
   num_workers: 4
   lr: 0.0002
   weight_decay: 0.01
   grad_clip: 1.0
-  val_ratio: 0.2
-  label_smoothing: 0.05
+  auto_resume: true
+  pin_memory: true
+  val_ratio: 0.05
+  label_smoothing: 0
   loss_weight_ce: 1.0
   loss_weight_mse: 1.0
 
 debug:
   log_every: 10
+  print_batch_shapes: true
+  log_gpu_mem: true
 
 output:
-  work_dir: /data/SIQA/workdirs/siqa_dinov2_vits14
+  work_dir: /data/SIQAdn2/workdirs/siqa_dual_swin_clip

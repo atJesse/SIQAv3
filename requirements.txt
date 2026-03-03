@@ -4,3 +4,4 @@ PyYAML
 numpy
 Pillow
 openpyxl
+transformers
