@@ -35,7 +35,7 @@ Data/
 # Large generated files
 *.npy
 *.npz
-*.csv
+#*.csv
 
 # Keep source-controlled configs/docs/scripts
 !README.md
