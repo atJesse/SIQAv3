@@ -17,11 +17,17 @@ model:
   clip_local_dir: /root/.cache/huggingface/hub/models--openai--clip-vit-large-patch14-336/snapshots/ce19dc912ca5cd21c8a653c79e251e808ccabcd1
   clip_local_files_only: true
   clip_interpolate_pos_encoding: true
+  clip_mult_enabled: true
+  clip_mult_replace_raw: true
+  clip_mult_l2_norm: true
   bottleneck_dim: 256
   bottleneck_dropout: 0.5
   semantic_gate_enabled: true
+  semantic_gate_mode: hard
   semantic_gate_threshold: 0.4
+  semantic_gate_high_threshold: 0.5
   gate_logit_strength: 12.0
+  soft_gate_logit_strength: 6.0
 
 train:
   epochs: 10

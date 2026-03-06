@@ -1,0 +1,34 @@
+{
+  "train_pred_csv": "/data/SIQAdn2/workdirs/siqa_dual_swin_clip/train_predictions.csv",
+  "test_pred_csv": "/data/SIQAdn2/submission/prediction.csv",
+  "label_xlsx": "/data/SIQA/Data/Train/Train/Train_scores.xlsx",
+  "label_csv": "",
+  "matched_samples": 510,
+  "metrics_before_mapping": {
+    "plcc": 0.9630664722553417,
+    "srocc": 0.9489559970717034,
+    "rmse": 0.4474127673491088,
+    "mae": 0.3112688496121018,
+    "score": 0.9546001871451587
+  },
+  "metrics_after_mapping": {
+    "plcc": 0.9653901713336105,
+    "srocc": 0.9489559970717034,
+    "rmse": 0.4226536632649102,
+    "mae": 0.288096276371678,
+    "score": 0.9555296667764662
+  },
+  "beta": {
+    "b1": 4721.246324401787,
+    "b2": 0.05278389779852533,
+    "b3": 3.5756041356245896,
+    "b4": -61.15013991708682,
+    "b5": 222.190163149762
+  },
+  "function": "y = b1 * (0.5 - 1 / (1 + exp(b2*(x-b3)))) + b4*x + b5",
+  "clip_range": [
+    0.0,
+    5.0
+  ],
+  "output_csv": "/data/SIQAdn2/submission/prediction_mapped.csv"
+}

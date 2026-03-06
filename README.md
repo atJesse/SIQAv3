@@ -23,7 +23,10 @@ $$
 Fusion uses:
 - $Diff_{swin}=|F_{swin\_ref}-F_{swin\_dist}|$
 - $Diff_{clip}=|F_{clip\_ref}-F_{clip\_dist}|$
-- $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},F_{clip\_dist},Diff_{clip},S_{cos})$
+- CLIP multiplication branch: $F_{mult\_clip}=\tilde{F}_{clip\_ref}\odot\tilde{F}_{clip\_dist}$
+- Safe default (no feature-dim inflation):
+  - $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},Diff_{clip},F_{mult\_clip},S_{cos})$
+  - (`F_{clip_dist}` is replaced by `F_{mult_clip}`)
 
 Then a required anti-overfitting bottleneck is applied:
 - `Linear -> BN -> SiLU -> Dropout(0.5)`
@@ -33,6 +36,16 @@ Then a required anti-overfitting bottleneck is applied:
 In inference/eval (`model.eval()`), a hard semantic gate is enabled:
 - If `S_cos < semantic_gate_threshold` (default `0.4`), force logits toward class `0`
 - This makes semantically unrelated pairs strongly biased to near-zero scores
+
+Now supports rollback-friendly gate modes:
+- `semantic_gate_mode: off` → disable gate
+- `semantic_gate_mode: hard` → single-threshold hard veto
+- `semantic_gate_mode: soft` → dual-threshold soft gate (recommended)
+
+Soft gate behavior (default):
+- `S_cos < semantic_gate_threshold` (e.g., `0.4`) → hard veto to class `0`
+- `semantic_gate_threshold <= S_cos < semantic_gate_high_threshold` (e.g., `0.5`) → soft logit penalty toward lower scores
+- `S_cos >= semantic_gate_high_threshold` → no gate intervention
 
 ### 4) Training Objective
 `train_siqa.py` still uses hybrid objective:
@@ -68,11 +81,17 @@ In `configs/siqa_base.yaml`:
 - `model.clip_local_dir`
 - `model.clip_local_files_only`
 - `model.clip_interpolate_pos_encoding`
+- `model.clip_mult_enabled`
+- `model.clip_mult_replace_raw`
+- `model.clip_mult_l2_norm`
 - `model.bottleneck_dim`
 - `model.bottleneck_dropout`
 - `model.semantic_gate_enabled`
+- `model.semantic_gate_mode`
 - `model.semantic_gate_threshold`
+- `model.semantic_gate_high_threshold`
 - `model.gate_logit_strength`
+- `model.soft_gate_logit_strength`
 
 ### 7) Quick Start
 Install:
@@ -115,6 +134,22 @@ Outputs:
 - `clip_cosine_global_summary.json`: Pearson/Spearman/linear-fit (`R^2`)
 - `clip_score_relationship.png`: visualization (scatter + trend)
 
+### 9) 5-Parameter Logistic Mapping (VQEG-style)
+For end-score calibration (especially to stretch both extremes near `0` and `5` smoothly), use:
+
+```bash
+python3 tools/logistic_5pl_mapping.py \
+  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_swin_clip/train_predictions.csv \
+  --label_xlsx /data/SIQA/Data/Train/Train/Train_scores.xlsx \
+  --test_pred_csv /data/SIQAdn2/submission/prediction.csv \
+  --out_csv /data/SIQAdn2/submission/prediction_mapped.csv \
+  --out_json /data/SIQAdn2/submission/logistic_5pl_params.json
+```
+
+Outputs:
+- mapped prediction CSV (`Score` after 5PL calibration)
+- fitted beta parameters (`b1..b5`) and before/after metrics in JSON
+
 ---
 
 ## 中文
@@ -140,7 +175,10 @@ $$
 融合方式：
 - $Diff_{swin}=|F_{swin\_ref}-F_{swin\_dist}|$
 - $Diff_{clip}=|F_{clip\_ref}-F_{clip\_dist}|$
-- $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},F_{clip\_dist},Diff_{clip},S_{cos})$
+- CLIP 点乘分支：$F_{mult\_clip}=\tilde{F}_{clip\_ref}\odot\tilde{F}_{clip\_dist}$
+- 默认安全融合（不增加总维度）：
+  - $Fused=Concat(F_{swin\_ref},F_{swin\_dist},Diff_{swin},F_{clip\_ref},Diff_{clip},F_{mult\_clip},S_{cos})$
+  - （即用 `F_{mult_clip}` 替换原先的 `F_{clip_dist}` 分支）
 
 然后立即经过防过拟合瓶颈层：
 - `Linear -> BN -> SiLU -> Dropout(0.5)`
@@ -152,6 +190,16 @@ $$
 - 直接把 logits 强制偏向 `0` 分类别
 
 这样对“语义完全不相关但画质看起来好”的样本会更强地压低分数。
+
+目前支持可回退门控模式：
+- `semantic_gate_mode: off`：关闭门控
+- `semantic_gate_mode: hard`：单阈值硬门控
+- `semantic_gate_mode: soft`：双阈值软门控（推荐）
+
+软门控（默认）逻辑：
+- `S_cos < semantic_gate_threshold`（如 `0.4`）：执行硬否决，强压到 `0` 分方向
+- `semantic_gate_threshold <= S_cos < semantic_gate_high_threshold`（如 `0.5`）：执行软惩罚，温和下压分数
+- `S_cos >= semantic_gate_high_threshold`：不干预
 
 ### 4) 损失与输出
 训练仍采用混合损失：
@@ -187,11 +235,17 @@ $$
 - `model.clip_local_dir`
 - `model.clip_local_files_only`
 - `model.clip_interpolate_pos_encoding`
+- `model.clip_mult_enabled`
+- `model.clip_mult_replace_raw`
+- `model.clip_mult_l2_norm`
 - `model.bottleneck_dim`
 - `model.bottleneck_dropout`
 - `model.semantic_gate_enabled`
+- `model.semantic_gate_mode`
 - `model.semantic_gate_threshold`
+- `model.semantic_gate_high_threshold`
 - `model.gate_logit_strength`
+- `model.soft_gate_logit_strength`
 
 ### 7) 常用命令
 安装依赖：
@@ -233,3 +287,19 @@ python3 tools/analyze_clip_semantic_distribution.py \
 - `clip_cosine_class_summary.csv`：各分数类别余弦相似度范围/分位数/统计量
 - `clip_cosine_global_summary.json`：Pearson/Spearman/线性拟合（含 `R^2`）
 - `clip_score_relationship.png`：可视化图（散点 + 趋势）
+
+### 9) 5 参数逻辑斯谛映射（VQEG 标准后处理）
+用于把模型分数做平滑校准（尤其把两端更自然地拉向 `0/5`）：
+
+```bash
+python3 tools/logistic_5pl_mapping.py \
+  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_swin_clip/train_predictions.csv \
+  --label_xlsx /data/SIQA/Data/Train/Train/Train_scores.xlsx \
+  --test_pred_csv /data/SIQAdn2/submission/prediction.csv \
+  --out_csv /data/SIQAdn2/submission/prediction_mapped.csv \
+  --out_json /data/SIQAdn2/submission/logistic_5pl_params.json
+```
+
+输出：
+- 映射后的预测 CSV（`Score` 为 5PL 校准后结果）
+- 拟合得到的 `b1..b5` 参数及映射前后指标对比 JSON

@@ -18,20 +18,32 @@ class SiameseSemanticIQA(nn.Module):
         clip_local_dir: str = "",
         clip_local_files_only: bool = False,
         clip_interpolate_pos_encoding: bool = True,
+        clip_mult_enabled: bool = True,
+        clip_mult_replace_raw: bool = True,
+        clip_mult_l2_norm: bool = True,
         bottleneck_dim: int = 256,
         bottleneck_dropout: float = 0.5,
         semantic_gate_enabled: bool = True,
         semantic_gate_threshold: float = 0.4,
+        semantic_gate_high_threshold: float = 0.5,
+        semantic_gate_mode: str = "hard",
         gate_logit_strength: float = 12.0,
+        soft_gate_logit_strength: float = 6.0,
     ):
         super().__init__()
 
         self.swin_name = swin_name
         self.clip_name = clip_name
         self.clip_interpolate_pos_encoding = bool(clip_interpolate_pos_encoding)
+        self.clip_mult_enabled = bool(clip_mult_enabled)
+        self.clip_mult_replace_raw = bool(clip_mult_replace_raw)
+        self.clip_mult_l2_norm = bool(clip_mult_l2_norm)
         self.semantic_gate_enabled = bool(semantic_gate_enabled)
         self.semantic_gate_threshold = float(semantic_gate_threshold)
+        self.semantic_gate_high_threshold = float(semantic_gate_high_threshold)
+        self.semantic_gate_mode = str(semantic_gate_mode).lower()
         self.gate_logit_strength = float(gate_logit_strength)
+        self.soft_gate_logit_strength = float(soft_gate_logit_strength)
 
         self.swin_backbone, self.swin_feature_dim = self._build_swin_backbone(
             swin_name,
@@ -49,7 +61,8 @@ class SiameseSemanticIQA(nn.Module):
             for param in self.clip_backbone.parameters():
                 param.requires_grad = False
 
-        fusion_dim = self.swin_feature_dim * 3 + self.clip_feature_dim * 3 + 1
+        clip_branch_dim = self.clip_feature_dim * (3 if self.clip_mult_replace_raw else 4)
+        fusion_dim = self.swin_feature_dim * 3 + clip_branch_dim + 1
         self.bottleneck = nn.Sequential(
             nn.Linear(fusion_dim, bottleneck_dim),
             nn.BatchNorm1d(bottleneck_dim),
@@ -173,15 +186,24 @@ class SiameseSemanticIQA(nn.Module):
         diff_swin = torch.abs(feat_swin_ref - feat_swin_dist)
         diff_clip = torch.abs(feat_clip_ref - feat_clip_dist)
 
+        mult_clip = feat_clip_ref * feat_clip_dist
+        if self.clip_mult_enabled and self.clip_mult_l2_norm:
+            mult_clip = F.normalize(feat_clip_ref, dim=1) * F.normalize(feat_clip_dist, dim=1)
+
         cos_sim = F.cosine_similarity(feat_clip_ref, feat_clip_dist, dim=1).unsqueeze(1)
+        if self.clip_mult_enabled and self.clip_mult_replace_raw:
+            clip_fused_parts = [feat_clip_ref, diff_clip, mult_clip]
+        elif self.clip_mult_enabled:
+            clip_fused_parts = [feat_clip_ref, feat_clip_dist, diff_clip, mult_clip]
+        else:
+            clip_fused_parts = [feat_clip_ref, feat_clip_dist, diff_clip]
+
         fused = torch.cat(
             [
                 feat_swin_ref,
                 feat_swin_dist,
                 diff_swin,
-                feat_clip_ref,
-                feat_clip_dist,
-                diff_clip,
+                *clip_fused_parts,
                 cos_sim,
             ],
             dim=1,
@@ -190,13 +212,46 @@ class SiameseSemanticIQA(nn.Module):
         fused = self.bottleneck(fused)
         logits = self.head(fused)
 
-        gate_mask = torch.zeros_like(cos_sim.squeeze(1), dtype=torch.bool)
+        cos_flat = cos_sim.squeeze(1)
+        hard_gate_mask = torch.zeros_like(cos_flat, dtype=torch.bool)
+        soft_gate_mask = torch.zeros_like(cos_flat, dtype=torch.bool)
+
         if self.semantic_gate_enabled and (not self.training):
-            gate_mask = cos_sim.squeeze(1) < self.semantic_gate_threshold
-            if torch.any(gate_mask):
-                logits = logits.clone()
-                logits[gate_mask] = -self.gate_logit_strength
-                logits[gate_mask, 0] = self.gate_logit_strength
+            mode = self.semantic_gate_mode
+            if mode == "off":
+                mode = "off"
+            elif mode not in {"hard", "soft"}:
+                mode = "hard"
+
+            low_th = self.semantic_gate_threshold
+            high_th = max(self.semantic_gate_high_threshold, low_th + 1e-6)
+
+            if mode == "hard":
+                hard_gate_mask = cos_flat < low_th
+                if torch.any(hard_gate_mask):
+                    logits = logits.clone()
+                    logits[hard_gate_mask] = -self.gate_logit_strength
+                    logits[hard_gate_mask, 0] = self.gate_logit_strength
+
+            if mode == "soft":
+                hard_gate_mask = cos_flat < low_th
+                soft_gate_mask = (cos_flat >= low_th) & (cos_flat < high_th)
+
+                if torch.any(hard_gate_mask) or torch.any(soft_gate_mask):
+                    logits = logits.clone()
+
+                    if torch.any(hard_gate_mask):
+                        logits[hard_gate_mask] = -self.gate_logit_strength
+                        logits[hard_gate_mask, 0] = self.gate_logit_strength
+
+                    if torch.any(soft_gate_mask):
+                        alpha = (high_th - cos_flat[soft_gate_mask]) / (high_th - low_th)
+                        alpha = alpha.clamp(min=0.0, max=1.0)
+                        delta = alpha * self.soft_gate_logit_strength
+                        logits[soft_gate_mask, 0] += delta
+                        logits[soft_gate_mask, 1:] -= delta.unsqueeze(1)
+
+        gate_mask = hard_gate_mask | soft_gate_mask
 
         probs = F.softmax(logits, dim=1)
         expected_scores = torch.sum(probs * self.score_weights, dim=1)
@@ -204,5 +259,7 @@ class SiameseSemanticIQA(nn.Module):
             return logits, expected_scores, {
                 "cos_sim": cos_sim.squeeze(1),
                 "gate_mask": gate_mask,
+                "hard_gate_mask": hard_gate_mask,
+                "soft_gate_mask": soft_gate_mask,
             }
         return logits, expected_scores

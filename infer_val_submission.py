@@ -73,11 +73,17 @@ def main():
         clip_local_dir=cfg["model"].get("clip_local_dir", ""),
         clip_local_files_only=cfg["model"].get("clip_local_files_only", False),
         clip_interpolate_pos_encoding=cfg["model"].get("clip_interpolate_pos_encoding", True),
+        clip_mult_enabled=cfg["model"].get("clip_mult_enabled", True),
+        clip_mult_replace_raw=cfg["model"].get("clip_mult_replace_raw", True),
+        clip_mult_l2_norm=cfg["model"].get("clip_mult_l2_norm", True),
         bottleneck_dim=cfg["model"].get("bottleneck_dim", 256),
         bottleneck_dropout=cfg["model"].get("bottleneck_dropout", 0.5),
         semantic_gate_enabled=cfg["model"].get("semantic_gate_enabled", True),
         semantic_gate_threshold=cfg["model"].get("semantic_gate_threshold", 0.4),
+        semantic_gate_high_threshold=cfg["model"].get("semantic_gate_high_threshold", 0.5),
+        semantic_gate_mode=cfg["model"].get("semantic_gate_mode", "hard"),
         gate_logit_strength=cfg["model"].get("gate_logit_strength", 12.0),
+        soft_gate_logit_strength=cfg["model"].get("soft_gate_logit_strength", 6.0),
     ).to(device)
 
     state = torch.load(args.ckpt, map_location=device)

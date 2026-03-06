@@ -104,6 +104,8 @@ def evaluate(model, loader, device):
     model.eval()
     all_pred, all_true = [], []
     gate_trigger_count = 0
+    hard_gate_trigger_count = 0
+    soft_gate_trigger_count = 0
     sample_count = 0
     cos_values = []
     with torch.no_grad():
@@ -115,7 +117,11 @@ def evaluate(model, loader, device):
             all_pred.append(pred.detach().cpu().numpy())
             all_true.append(y)
             gate_mask = aux["gate_mask"]
+            hard_gate_mask = aux.get("hard_gate_mask", torch.zeros_like(gate_mask, dtype=torch.bool))
+            soft_gate_mask = aux.get("soft_gate_mask", torch.zeros_like(gate_mask, dtype=torch.bool))
             gate_trigger_count += int(gate_mask.sum().item())
+            hard_gate_trigger_count += int(hard_gate_mask.sum().item())
+            soft_gate_trigger_count += int(soft_gate_mask.sum().item())
             sample_count += int(gate_mask.numel())
             cos_values.append(aux["cos_sim"].detach().cpu().numpy())
 
@@ -124,8 +130,12 @@ def evaluate(model, loader, device):
     metrics = compute_metrics(y_true, y_pred)
     if sample_count > 0:
         metrics["gate_trigger_ratio"] = gate_trigger_count / sample_count
+        metrics["hard_gate_trigger_ratio"] = hard_gate_trigger_count / sample_count
+        metrics["soft_gate_trigger_ratio"] = soft_gate_trigger_count / sample_count
     else:
         metrics["gate_trigger_ratio"] = 0.0
+        metrics["hard_gate_trigger_ratio"] = 0.0
+        metrics["soft_gate_trigger_ratio"] = 0.0
     if cos_values:
         metrics["cos_sim_mean"] = float(np.mean(np.concatenate(cos_values)))
     else:
@@ -165,11 +175,17 @@ def main():
         clip_local_dir=cfg["model"].get("clip_local_dir", ""),
         clip_local_files_only=cfg["model"].get("clip_local_files_only", False),
         clip_interpolate_pos_encoding=cfg["model"].get("clip_interpolate_pos_encoding", True),
+        clip_mult_enabled=cfg["model"].get("clip_mult_enabled", True),
+        clip_mult_replace_raw=cfg["model"].get("clip_mult_replace_raw", True),
+        clip_mult_l2_norm=cfg["model"].get("clip_mult_l2_norm", True),
         bottleneck_dim=cfg["model"].get("bottleneck_dim", 256),
         bottleneck_dropout=cfg["model"].get("bottleneck_dropout", 0.5),
         semantic_gate_enabled=cfg["model"].get("semantic_gate_enabled", True),
         semantic_gate_threshold=cfg["model"].get("semantic_gate_threshold", 0.4),
+        semantic_gate_high_threshold=cfg["model"].get("semantic_gate_high_threshold", 0.5),
+        semantic_gate_mode=cfg["model"].get("semantic_gate_mode", "hard"),
         gate_logit_strength=cfg["model"].get("gate_logit_strength", 12.0),
+        soft_gate_logit_strength=cfg["model"].get("soft_gate_logit_strength", 6.0),
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -263,13 +279,15 @@ def main():
 
         metrics = evaluate(model, val_loader, device)
         logger.info(
-            "Epoch %d done | train_loss %.4f | val_score %.4f | srocc %.4f | plcc %.4f | gate_ratio %.2f%% | cos_mean %.4f",
+            "Epoch %d done | train_loss %.4f | val_score %.4f | srocc %.4f | plcc %.4f | gate_ratio %.2f%% (hard %.2f%%, soft %.2f%%) | cos_mean %.4f",
             epoch,
             running_loss / max(1, steps_done),
             metrics["score"],
             metrics["srocc"],
             metrics["plcc"],
             100.0 * metrics.get("gate_trigger_ratio", 0.0),
+            100.0 * metrics.get("hard_gate_trigger_ratio", 0.0),
+            100.0 * metrics.get("soft_gate_trigger_ratio", 0.0),
             metrics.get("cos_sim_mean", 0.0),
         )
 
