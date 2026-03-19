@@ -18,6 +18,7 @@ workdirs/
 #submission/
 BAPPS2afc/results*/
 PieAPP2afc/results*/
+paperFigExample/
 paperFigExample/*.csv
 paperFigExample/*.json
 
