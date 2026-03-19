@@ -1,0 +1,43 @@
+BAPPS root: /data/dataset/BAPPS/dataset/2afc/val
+
+[Global]
+count: 36344
+min: 0.0
+max: 1.0
+mean: 0.5137904545231988
+num_eq_0: 5753
+num_eq_0_5: 0
+num_eq_1: 6478
+num_gt_0_5: 18840
+num_lt_0_5: 17504
+num_in_0_5_1: 12362
+num_in_0_0_5: 11751
+shapes: {'(1,)': 36344}
+dtypes: {'float32': 36344}
+top_values: [('0.600000', 6541), ('1.000000', 6478), ('0.400000', 6318), ('0.800000', 5821), ('0.000000', 5753), ('0.200000', 5433)]
+
+[Per Subset]
+
+- cnn
+  count=4720 mean=0.5139830550557729 min=0.0 max=1.0
+  eq0=1325 eq0.5=0 eq1=1497 gt0.5=2408 lt0.5=2312
+
+- color
+  count=4720 mean=0.5523728904929959 min=0.0 max=1.0
+  eq0=379 eq0.5=0 eq1=712 gt0.5=2681 lt0.5=2039
+
+- deblur
+  count=9440 mean=0.5149152640600578 min=0.0 max=1.0
+  eq0=774 eq0.5=0 eq1=933 gt0.5=4919 lt0.5=4521
+
+- frameinterp
+  count=1888 mean=0.5021186531126752 min=0.0 max=1.0
+  eq0=236 eq0.5=0 eq1=216 gt0.5=956 lt0.5=932
+
+- superres
+  count=10856 mean=0.5069823214371106 min=0.0 max=1.0
+  eq0=1815 eq0.5=0 eq1=1920 gt0.5=5554 lt0.5=5302
+
+- traditional
+  count=4720 mean=0.49309322560932173 min=0.0 max=1.0
+  eq0=1224 eq0.5=0 eq1=1200 gt0.5=2322 lt0.5=2398

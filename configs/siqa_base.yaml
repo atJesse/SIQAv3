@@ -1,21 +1,23 @@
 seed: 3407
 
 data:
-  ref_dir: /data/SIQA/Data/Train/Train/Ref
-  dist_dir: /data/SIQA/Data/Train/Train/Dist
-  score_file: /data/SIQA/Data/Train/Train/Train_scores.xlsx
+  ref_dir: /data/dataset/LoViF/Train/Ref
+  dist_dir: /data/dataset/LoViF/Train/Dist
+  score_file: /data/dataset/LoViF/Train/Train_scores.xlsx
   image_size: 224
   normalize_mean: [0.48145466, 0.4578275, 0.40821073]
   normalize_std: [0.26862954, 0.26130258, 0.27577711]
 
 model:
+  structure_backbone: vit_base_patch16_dinov3
+  ablation_mode: full
   swin_name: swin_tiny_patch4_window7_224
   clip_name: clip_vit_l14_336
   num_classes: 6
   freeze_backbones: true
-  swin_local_path: /root/.cache/torch/hub/checkpoints/swin_t-704ceda3.pth
-  clip_local_dir: /root/.cache/huggingface/hub/models--openai--clip-vit-large-patch14-336/snapshots/ce19dc912ca5cd21c8a653c79e251e808ccabcd1
-  clip_local_files_only: true
+  swin_local_path: ""
+  clip_local_dir: ""
+  clip_local_files_only: false
   clip_interpolate_pos_encoding: true
   clip_mult_enabled: true
   clip_mult_replace_raw: true
@@ -49,4 +51,4 @@ debug:
   log_gpu_mem: true
 
 output:
-  work_dir: /data/SIQAdn2/workdirs/siqa_dual_swin_clip
+  work_dir: /data/SIQAdn2/workdirs/siqa_dual_dinov3_clip

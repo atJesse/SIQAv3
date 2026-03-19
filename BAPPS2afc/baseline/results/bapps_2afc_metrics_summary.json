@@ -1,0 +1,449 @@
+{
+  "meta": {
+    "bapps_root": "/data/dataset/BAPPS/dataset/2afc/val",
+    "subsets": [
+      "cnn",
+      "color",
+      "deblur",
+      "frameinterp",
+      "superres",
+      "traditional"
+    ],
+    "num_samples_per_subset": 0,
+    "device": "cuda",
+    "elapsed_sec": 1174.8207039833069,
+    "runtime_per_pair_metric_sec": 0.0053875041454953905,
+    "metrics": [
+      "PSNR",
+      "SSIM",
+      "FSIM",
+      "VIF",
+      "LPIPS",
+      "DISTS"
+    ]
+  },
+  "overall": [
+    {
+      "subset": "ALL",
+      "metric": "PSNR",
+      "count": 36344,
+      "accuracy_2afc": 0.6666024653312789,
+      "soft_agreement_mean": 0.6329022679099087,
+      "model_choose_p0_ratio": 0.4947996918335901,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -0.061476859750134706
+    },
+    {
+      "subset": "ALL",
+      "metric": "SSIM",
+      "count": 36344,
+      "accuracy_2afc": 0.6409586176535329,
+      "soft_agreement_mean": 0.6137079027578343,
+      "model_choose_p0_ratio": 0.49612040501871013,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -0.000670720542983981
+    },
+    {
+      "subset": "ALL",
+      "metric": "FSIM",
+      "count": 36344,
+      "accuracy_2afc": 0.6713900506273388,
+      "soft_agreement_mean": 0.6397149466874413,
+      "model_choose_p0_ratio": 0.49612040501871013,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -7.272856451461107e-06
+    },
+    {
+      "subset": "ALL",
+      "metric": "VIF",
+      "count": 36344,
+      "accuracy_2afc": 0.5813339203169712,
+      "soft_agreement_mean": 0.5682038302870966,
+      "model_choose_p0_ratio": 0.49823904908650674,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -0.0023777641736346484
+    },
+    {
+      "subset": "ALL",
+      "metric": "LPIPS",
+      "count": 36344,
+      "accuracy_2afc": 0.6990975126568347,
+      "soft_agreement_mean": 0.6624036986190573,
+      "model_choose_p0_ratio": 0.5020911292097733,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -0.00031295639701648477
+    },
+    {
+      "subset": "ALL",
+      "metric": "DISTS",
+      "count": 36344,
+      "accuracy_2afc": 0.7229253797050407,
+      "soft_agreement_mean": 0.6777459837142857,
+      "model_choose_p0_ratio": 0.49911952454325337,
+      "human_choose_p0_ratio": 0.4816200748404138,
+      "mean_margin_p0_minus_p1": -0.00043851935683749413
+    }
+  ],
+  "per_subset": [
+    {
+      "subset": "cnn",
+      "metric": "PSNR",
+      "count": 4720,
+      "accuracy_2afc": 0.8385593220338983,
+      "soft_agreement_mean": 0.8014406786473879,
+      "model_choose_p0_ratio": 0.4936440677966102,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": -0.1882578278497114
+    },
+    {
+      "subset": "cnn",
+      "metric": "SSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.8158898305084745,
+      "soft_agreement_mean": 0.7813135598896671,
+      "model_choose_p0_ratio": 0.4934322033898305,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": -0.002358288593369268
+    },
+    {
+      "subset": "cnn",
+      "metric": "FSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.8307203389830509,
+      "soft_agreement_mean": 0.794110170123562,
+      "model_choose_p0_ratio": 0.4896186440677966,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": -0.0022839564830064774
+    },
+    {
+      "subset": "cnn",
+      "metric": "VIF",
+      "count": 4720,
+      "accuracy_2afc": 0.7684322033898305,
+      "soft_agreement_mean": 0.7393644073978066,
+      "model_choose_p0_ratio": 0.48495762711864404,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": -0.008926928541339666
+    },
+    {
+      "subset": "cnn",
+      "metric": "LPIPS",
+      "count": 4720,
+      "accuracy_2afc": 0.8525423728813559,
+      "soft_agreement_mean": 0.8139830515830446,
+      "model_choose_p0_ratio": 0.488135593220339,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": 0.006569423463341821
+    },
+    {
+      "subset": "cnn",
+      "metric": "DISTS",
+      "count": 4720,
+      "accuracy_2afc": 0.8525423728813559,
+      "soft_agreement_mean": 0.8133050855280737,
+      "model_choose_p0_ratio": 0.4902542372881356,
+      "human_choose_p0_ratio": 0.48983050847457626,
+      "mean_margin_p0_minus_p1": 0.003676925170219551
+    },
+    {
+      "subset": "color",
+      "metric": "PSNR",
+      "count": 4720,
+      "accuracy_2afc": 0.6747881355932204,
+      "soft_agreement_mean": 0.6244067811328223,
+      "model_choose_p0_ratio": 0.4576271186440678,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": -0.23910989922992254
+    },
+    {
+      "subset": "color",
+      "metric": "SSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.5921610169491526,
+      "soft_agreement_mean": 0.5701694924542207,
+      "model_choose_p0_ratio": 0.45805084745762714,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": -0.002450809103705115
+    },
+    {
+      "subset": "color",
+      "metric": "FSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.5983050847457627,
+      "soft_agreement_mean": 0.570974577202509,
+      "model_choose_p0_ratio": 0.4646186440677966,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": -0.0006327791360475249
+    },
+    {
+      "subset": "color",
+      "metric": "VIF",
+      "count": 4720,
+      "accuracy_2afc": 0.5103813559322034,
+      "soft_agreement_mean": 0.5100000005436398,
+      "model_choose_p0_ratio": 0.46440677966101696,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": 0.0004478059880735384
+    },
+    {
+      "subset": "color",
+      "metric": "LPIPS",
+      "count": 4720,
+      "accuracy_2afc": 0.6175847457627118,
+      "soft_agreement_mean": 0.5880508486907613,
+      "model_choose_p0_ratio": 0.4538135593220339,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": 0.006640643192903075
+    },
+    {
+      "subset": "color",
+      "metric": "DISTS",
+      "count": 4720,
+      "accuracy_2afc": 0.6591101694915255,
+      "soft_agreement_mean": 0.6150000008265093,
+      "model_choose_p0_ratio": 0.4822033898305085,
+      "human_choose_p0_ratio": 0.4319915254237288,
+      "mean_margin_p0_minus_p1": 0.0012849127589646032
+    },
+    {
+      "subset": "deblur",
+      "metric": "PSNR",
+      "count": 9440,
+      "accuracy_2afc": 0.6222457627118644,
+      "soft_agreement_mean": 0.5900211868807673,
+      "model_choose_p0_ratio": 0.5049788135593221,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": 0.10033277303485547
+    },
+    {
+      "subset": "deblur",
+      "metric": "SSIM",
+      "count": 9440,
+      "accuracy_2afc": 0.611228813559322,
+      "soft_agreement_mean": 0.5838771189768183,
+      "model_choose_p0_ratio": 0.5058262711864406,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": 0.0008084275574281307
+    },
+    {
+      "subset": "deblur",
+      "metric": "FSIM",
+      "count": 9440,
+      "accuracy_2afc": 0.6195974576271186,
+      "soft_agreement_mean": 0.5901694920924255,
+      "model_choose_p0_ratio": 0.4966101694915254,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": -9.651579973051103e-05
+    },
+    {
+      "subset": "deblur",
+      "metric": "VIF",
+      "count": 9440,
+      "accuracy_2afc": 0.5692796610169492,
+      "soft_agreement_mean": 0.5567161015566375,
+      "model_choose_p0_ratio": 0.5198093220338983,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": 0.000302785035839437
+    },
+    {
+      "subset": "deblur",
+      "metric": "LPIPS",
+      "count": 9440,
+      "accuracy_2afc": 0.5971398305084745,
+      "soft_agreement_mean": 0.5733050849888537,
+      "model_choose_p0_ratio": 0.5067796610169492,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": -0.0012541335817871386
+    },
+    {
+      "subset": "deblur",
+      "metric": "DISTS",
+      "count": 9440,
+      "accuracy_2afc": 0.6386652542372881,
+      "soft_agreement_mean": 0.5992372891502613,
+      "model_choose_p0_ratio": 0.4843220338983051,
+      "human_choose_p0_ratio": 0.47891949152542374,
+      "mean_margin_p0_minus_p1": 0.0006506448138063237
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "PSNR",
+      "count": 1888,
+      "accuracy_2afc": 0.551906779661017,
+      "soft_agreement_mean": 0.54343220332669,
+      "model_choose_p0_ratio": 0.5127118644067796,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": 0.10937101103491702
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "SSIM",
+      "count": 1888,
+      "accuracy_2afc": 0.5683262711864406,
+      "soft_agreement_mean": 0.5522245766626577,
+      "model_choose_p0_ratio": 0.5047669491525424,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": 0.001807619511224803
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "FSIM",
+      "count": 1888,
+      "accuracy_2afc": 0.6001059322033898,
+      "soft_agreement_mean": 0.5808262715463416,
+      "model_choose_p0_ratio": 0.5090042372881356,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": 0.00158877427673946
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "VIF",
+      "count": 1888,
+      "accuracy_2afc": 0.5481991525423728,
+      "soft_agreement_mean": 0.5369703393997782,
+      "model_choose_p0_ratio": 0.4984110169491525,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": 0.0015530255889535834
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "LPIPS",
+      "count": 1888,
+      "accuracy_2afc": 0.6652542372881356,
+      "soft_agreement_mean": 0.6271186448728382,
+      "model_choose_p0_ratio": 0.513771186440678,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": -0.0023648938079269886
+    },
+    {
+      "subset": "frameinterp",
+      "metric": "DISTS",
+      "count": 1888,
+      "accuracy_2afc": 0.6610169491525424,
+      "soft_agreement_mean": 0.6269067803366204,
+      "model_choose_p0_ratio": 0.5158898305084746,
+      "human_choose_p0_ratio": 0.4936440677966102,
+      "mean_margin_p0_minus_p1": -0.0024775870270648246
+    },
+    {
+      "subset": "superres",
+      "metric": "PSNR",
+      "count": 10856,
+      "accuracy_2afc": 0.6857037582903464,
+      "soft_agreement_mean": 0.6423176132944154,
+      "model_choose_p0_ratio": 0.49594694178334564,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": -0.10739204926620798
+    },
+    {
+      "subset": "superres",
+      "metric": "SSIM",
+      "count": 10856,
+      "accuracy_2afc": 0.6447126013264555,
+      "soft_agreement_mean": 0.6105011059774268,
+      "model_choose_p0_ratio": 0.4988025055268976,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": -0.0014073460807730585
+    },
+    {
+      "subset": "superres",
+      "metric": "FSIM",
+      "count": 10856,
+      "accuracy_2afc": 0.7044952100221076,
+      "soft_agreement_mean": 0.6608879890048557,
+      "model_choose_p0_ratio": 0.5049742078113486,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": 0.0008756139987562189
+    },
+    {
+      "subset": "superres",
+      "metric": "VIF",
+      "count": 10856,
+      "accuracy_2afc": 0.5775607958732498,
+      "soft_agreement_mean": 0.5597089170591526,
+      "model_choose_p0_ratio": 0.49594694178334564,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": -0.004064021451428872
+    },
+    {
+      "subset": "superres",
+      "metric": "LPIPS",
+      "count": 10856,
+      "accuracy_2afc": 0.7422623434045689,
+      "soft_agreement_mean": 0.6901436999615889,
+      "model_choose_p0_ratio": 0.5221075902726603,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": -0.004454226794909041
+    },
+    {
+      "subset": "superres",
+      "metric": "DISTS",
+      "count": 10856,
+      "accuracy_2afc": 0.7485261606484893,
+      "soft_agreement_mean": 0.6923913052339895,
+      "model_choose_p0_ratio": 0.5165806927044952,
+      "human_choose_p0_ratio": 0.48839351510685336,
+      "mean_margin_p0_minus_p1": -0.003335891984672167
+    },
+    {
+      "subset": "traditional",
+      "metric": "PSNR",
+      "count": 4720,
+      "accuracy_2afc": 0.5771186440677966,
+      "soft_agreement_mean": 0.5727542374567207,
+      "model_choose_p0_ratio": 0.5029661016949153,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": -0.04341633016780271
+    },
+    {
+      "subset": "traditional",
+      "metric": "SSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.5947033898305085,
+      "soft_agreement_mean": 0.5812711865246548,
+      "model_choose_p0_ratio": 0.5078389830508474,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": 0.0005415425825295812
+    },
+    {
+      "subset": "traditional",
+      "metric": "FSIM",
+      "count": 4720,
+      "accuracy_2afc": 0.6411016949152543,
+      "soft_agreement_mean": 0.6280084746526712,
+      "model_choose_p0_ratio": 0.5076271186440678,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": 0.0004043443160036863
+    },
+    {
+      "subset": "traditional",
+      "metric": "VIF",
+      "count": 4720,
+      "accuracy_2afc": 0.511228813559322,
+      "soft_agreement_mean": 0.5102542371599603,
+      "model_choose_p0_ratio": 0.5074152542372882,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": -0.0017091925526945687
+    },
+    {
+      "subset": "traditional",
+      "metric": "LPIPS",
+      "count": 4720,
+      "accuracy_2afc": 0.7453389830508474,
+      "soft_agreement_mean": 0.713686441254439,
+      "model_choose_p0_ratio": 0.5042372881355932,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": -0.0019208845982359628
+    },
+    {
+      "subset": "traditional",
+      "metric": "DISTS",
+      "count": 4720,
+      "accuracy_2afc": 0.7915254237288135,
+      "soft_agreement_mean": 0.748601695772071,
+      "model_choose_p0_ratio": 0.5076271186440678,
+      "human_choose_p0_ratio": 0.5080508474576271,
+      "mean_margin_p0_minus_p1": -0.0009761402288735923
+    }
+  ]
+}

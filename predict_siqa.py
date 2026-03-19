@@ -42,8 +42,11 @@ def main():
     loader = DataLoader(ds, batch_size=cfg["train"]["batch_size"], shuffle=False, num_workers=cfg["train"]["num_workers"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    structure_backbone = cfg["model"].get("structure_backbone", cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"))
     model = SiameseSemanticIQA(
         num_classes=cfg["model"]["num_classes"],
+        structure_backbone=structure_backbone,
+        ablation_mode=cfg["model"].get("ablation_mode", "full"),
         swin_name=cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"),
         clip_name=cfg["model"].get("clip_name", "clip_vit_b32"),
         freeze_backbones=False,

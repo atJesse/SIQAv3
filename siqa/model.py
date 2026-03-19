@@ -11,6 +11,8 @@ class SiameseSemanticIQA(nn.Module):
     def __init__(
         self,
         num_classes: int = 6,
+        structure_backbone: str = "",
+        ablation_mode: str = "full",
         swin_name: str = "swin_tiny_patch4_window7_224",
         clip_name: str = "clip_vit_b32",
         freeze_backbones: bool = True,
@@ -32,7 +34,8 @@ class SiameseSemanticIQA(nn.Module):
     ):
         super().__init__()
 
-        self.swin_name = swin_name
+        self.structure_backbone_name = structure_backbone or swin_name
+        self.ablation_mode = str(ablation_mode).lower()
         self.clip_name = clip_name
         self.clip_interpolate_pos_encoding = bool(clip_interpolate_pos_encoding)
         self.clip_mult_enabled = bool(clip_mult_enabled)
@@ -45,8 +48,11 @@ class SiameseSemanticIQA(nn.Module):
         self.gate_logit_strength = float(gate_logit_strength)
         self.soft_gate_logit_strength = float(soft_gate_logit_strength)
 
-        self.swin_backbone, self.swin_feature_dim = self._build_swin_backbone(
-            swin_name,
+        if self.ablation_mode not in {"full", "clip_only", "structure_only"}:
+            raise ValueError("ablation_mode must be one of {'full','clip_only','structure_only'}")
+
+        self.structure_backbone, self.structure_feature_dim, self.structure_backbone_type = self._build_structure_backbone(
+            self.structure_backbone_name,
             swin_local_path=swin_local_path,
         )
         self.clip_backbone, self.clip_feature_dim = self._build_clip_backbone(
@@ -56,13 +62,13 @@ class SiameseSemanticIQA(nn.Module):
         )
 
         if freeze_backbones:
-            for param in self.swin_backbone.parameters():
+            for param in self.structure_backbone.parameters():
                 param.requires_grad = False
             for param in self.clip_backbone.parameters():
                 param.requires_grad = False
 
         clip_branch_dim = self.clip_feature_dim * (3 if self.clip_mult_replace_raw else 4)
-        fusion_dim = self.swin_feature_dim * 3 + clip_branch_dim + 1
+        fusion_dim = self.structure_feature_dim * 3 + clip_branch_dim + 1
         self.bottleneck = nn.Sequential(
             nn.Linear(fusion_dim, bottleneck_dim),
             nn.BatchNorm1d(bottleneck_dim),
@@ -132,6 +138,45 @@ class SiameseSemanticIQA(nn.Module):
             ) from exc
         return model, int(model.head.in_features)
 
+    def _build_dinov3_backbone(self, backbone_name: str):
+        try:
+            import timm
+        except ImportError as exc:
+            raise RuntimeError("timm is required for DINOv3 backbone") from exc
+
+        available = set(timm.list_models("*dinov3*"))
+        if backbone_name not in available:
+            raise ValueError(
+                f"Unsupported DINOv3 backbone '{backbone_name}'. "
+                f"Try one of: {sorted(available)}"
+            )
+
+        try:
+            model = timm.create_model(backbone_name, pretrained=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load DINOv3 backbone '{backbone_name}' from timm. "
+                "If you are in mainland China, set HF_ENDPOINT=https://hf-mirror.com "
+                "before running to speed up HuggingFace downloads."
+            ) from exc
+
+        feature_dim = getattr(model, "num_features", None)
+        if not isinstance(feature_dim, int) or feature_dim <= 0:
+            raise RuntimeError(f"Unable to resolve feature dim for DINOv3 backbone '{backbone_name}'")
+        return model, feature_dim
+
+    def _build_structure_backbone(self, backbone_name: str, swin_local_path: str = ""):
+        if backbone_name == "swin_tiny_patch4_window7_224":
+            model, feature_dim = self._build_swin_backbone(backbone_name, swin_local_path=swin_local_path)
+            return model, feature_dim, "swin"
+        if "dinov3" in backbone_name:
+            model, feature_dim = self._build_dinov3_backbone(backbone_name)
+            return model, feature_dim, "dinov3"
+        raise ValueError(
+            "Unsupported structure backbone. Use 'swin_tiny_patch4_window7_224' "
+            "or a timm DINOv3 model name like 'vit_base_patch16_dinov3'."
+        )
+
     def _build_clip_backbone(self, clip_name: str, clip_local_dir: str = "", clip_local_files_only: bool = False):
         try:
             from transformers import CLIPVisionModel
@@ -151,23 +196,66 @@ class SiameseSemanticIQA(nn.Module):
                 f"Failed to load CLIP backbone '{model_id}'. "
                 "This usually happens when HuggingFace is unreachable. "
                 "If you are in mainland China, set HF_ENDPOINT=https://hf-mirror.com "
-                "or set model.clip_local_dir to a local downloaded model path."
+                "or set model.clip_local_dir to a local downloaded model path. "
+                f"Underlying error: {exc}"
             ) from exc
         feature_dim = int(model.config.hidden_size)
         return model, feature_dim
 
+    def extract_structure_features(self, x: torch.Tensor) -> torch.Tensor:
+        if self.structure_backbone_type == "swin":
+            feat = self.structure_backbone.features(x)
+            feat = self.structure_backbone.norm(feat)
+            feat = self.structure_backbone.permute(feat)
+            feat = self.structure_backbone.avgpool(feat)
+            return torch.flatten(feat, 1)
+
+        if self.structure_backbone_type == "dinov3":
+            feat = self.structure_backbone.forward_features(x)
+            if isinstance(feat, dict):
+                cls_feat = feat.get("x_norm_clstoken", None)
+                if torch.is_tensor(cls_feat):
+                    return cls_feat
+
+                patch_feat = feat.get("x_norm_patchtokens", None)
+                if torch.is_tensor(patch_feat):
+                    return patch_feat.mean(dim=1)
+
+                last_hidden_state = feat.get("last_hidden_state", None)
+                if torch.is_tensor(last_hidden_state):
+                    return last_hidden_state[:, 0, :]
+
+                for value in feat.values():
+                    if torch.is_tensor(value):
+                        if value.dim() == 3:
+                            return value[:, 0, :]
+                        if value.dim() == 2:
+                            return value
+                raise RuntimeError("DINOv3 forward_features returned dict without usable tensor features")
+
+            if torch.is_tensor(feat):
+                if feat.dim() == 3:
+                    return feat[:, 0, :]
+                if feat.dim() == 2:
+                    return feat
+            raise RuntimeError("DINOv3 forward_features returned unsupported feature format")
+
+        raise RuntimeError(f"Unsupported structure backbone type: {self.structure_backbone_type}")
+
     def extract_swin_features(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self.swin_backbone.features(x)
-        feat = self.swin_backbone.norm(feat)
-        feat = self.swin_backbone.permute(feat)
-        feat = self.swin_backbone.avgpool(feat)
-        return torch.flatten(feat, 1)
+        return self.extract_structure_features(x)
 
     def extract_clip_features(self, x: torch.Tensor) -> torch.Tensor:
-        outputs = self.clip_backbone(
-            pixel_values=x,
-            interpolate_pos_encoding=self.clip_interpolate_pos_encoding,
-        )
+        clip_image_size = getattr(getattr(self.clip_backbone, "config", None), "image_size", None)
+        if isinstance(clip_image_size, int) and x.shape[-1] != clip_image_size:
+            x = F.interpolate(x, size=(clip_image_size, clip_image_size), mode="bilinear", align_corners=False)
+        try:
+            outputs = self.clip_backbone(
+                pixel_values=x,
+                interpolate_pos_encoding=self.clip_interpolate_pos_encoding,
+            )
+        except TypeError:
+            outputs = self.clip_backbone(pixel_values=x)
         if outputs.pooler_output is not None:
             return outputs.pooler_output
         return outputs.last_hidden_state[:, 0, :]
@@ -178,12 +266,19 @@ class SiameseSemanticIQA(nn.Module):
         dist_img: torch.Tensor,
         return_aux: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        feat_swin_ref = self.extract_swin_features(ref_img)
-        feat_swin_dist = self.extract_swin_features(dist_img)
+        feat_structure_ref = self.extract_structure_features(ref_img)
+        feat_structure_dist = self.extract_structure_features(dist_img)
         feat_clip_ref = self.extract_clip_features(ref_img)
         feat_clip_dist = self.extract_clip_features(dist_img)
 
-        diff_swin = torch.abs(feat_swin_ref - feat_swin_dist)
+        if self.ablation_mode == "clip_only":
+            feat_structure_ref = torch.zeros_like(feat_structure_ref)
+            feat_structure_dist = torch.zeros_like(feat_structure_dist)
+        elif self.ablation_mode == "structure_only":
+            feat_clip_ref = torch.zeros_like(feat_clip_ref)
+            feat_clip_dist = torch.zeros_like(feat_clip_dist)
+
+        diff_structure = torch.abs(feat_structure_ref - feat_structure_dist)
         diff_clip = torch.abs(feat_clip_ref - feat_clip_dist)
 
         mult_clip = feat_clip_ref * feat_clip_dist
@@ -200,9 +295,9 @@ class SiameseSemanticIQA(nn.Module):
 
         fused = torch.cat(
             [
-                feat_swin_ref,
-                feat_swin_dist,
-                diff_swin,
+                feat_structure_ref,
+                feat_structure_dist,
+                diff_structure,
                 *clip_fused_parts,
                 cos_sim,
             ],
@@ -216,7 +311,8 @@ class SiameseSemanticIQA(nn.Module):
         hard_gate_mask = torch.zeros_like(cos_flat, dtype=torch.bool)
         soft_gate_mask = torch.zeros_like(cos_flat, dtype=torch.bool)
 
-        if self.semantic_gate_enabled and (not self.training):
+        apply_semantic_gate = self.semantic_gate_enabled and (self.ablation_mode != "structure_only")
+        if apply_semantic_gate and (not self.training):
             mode = self.semantic_gate_mode
             if mode == "off":
                 mode = "off"

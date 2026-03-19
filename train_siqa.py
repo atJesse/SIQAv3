@@ -1,8 +1,9 @@
 import argparse
+import csv
 import json
 import os
 import random
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -26,6 +27,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/siqa_base.yaml")
     parser.add_argument("--resume", type=str, default="")
+    parser.add_argument("--fold", type=int, default=-1, help="Fold index for K-fold training. Use -1 for the original holdout split.")
+    parser.add_argument("--num_folds", type=int, default=5, help="Number of folds for stratified K-fold training.")
     parser.add_argument("--dry_run", action="store_true")
     return parser.parse_args()
 
@@ -50,14 +53,50 @@ def _resolve_norm_stats(cfg: Dict) -> Tuple[list, list]:
     return mean, std
 
 
-def build_dataloaders(cfg: Dict):
+def build_stratified_kfold_indices(scores: List[float], num_folds: int, seed: int) -> List[List[int]]:
+    if num_folds < 2:
+        raise ValueError(f"num_folds must be >= 2, got {num_folds}")
+
+    bins: Dict[int, List[int]] = {}
+    for idx, score in enumerate(scores):
+        key = int(round(score))
+        bins.setdefault(key, []).append(idx)
+
+    rng = np.random.default_rng(seed)
+    folds: List[List[int]] = [[] for _ in range(num_folds)]
+
+    for group in bins.values():
+        group_arr = np.array(group)
+        rng.shuffle(group_arr)
+        for pos, sample_idx in enumerate(group_arr.tolist()):
+            folds[pos % num_folds].append(sample_idx)
+
+    for fold_ids in folds:
+        fold_ids.sort()
+
+    if any(len(fold_ids) == 0 for fold_ids in folds):
+        raise RuntimeError("At least one fold is empty. Reduce num_folds or check label distribution.")
+
+    return folds
+
+
+def build_dataloaders(cfg: Dict, fold: int = -1, num_folds: int = 5):
     data_cfg = cfg["data"]
     train_cfg = cfg["train"]
     mean, std = _resolve_norm_stats(cfg)
 
     pairs = [PairSample(name=n, score=s) for n, s in read_score_table(data_cfg["score_file"])]
     scores = [p.score for p in pairs]
-    tr_idx, va_idx = stratified_split_indices(scores, val_ratio=train_cfg["val_ratio"], seed=cfg["seed"])
+
+    if fold >= 0:
+        folds = build_stratified_kfold_indices(scores, num_folds=num_folds, seed=cfg["seed"])
+        if fold >= len(folds):
+            raise ValueError(f"fold index out of range: fold={fold}, num_folds={num_folds}")
+        va_idx = folds[fold]
+        va_set = set(va_idx)
+        tr_idx = [idx for idx in range(len(pairs)) if idx not in va_set]
+    else:
+        tr_idx, va_idx = stratified_split_indices(scores, val_ratio=train_cfg["val_ratio"], seed=cfg["seed"])
 
     train_samples = [pairs[i] for i in tr_idx]
     val_samples = [pairs[i] for i in va_idx]
@@ -97,7 +136,15 @@ def build_dataloaders(cfg: Dict):
         worker_init_fn=_seed_worker,
         generator=generator,
     )
-    return train_loader, val_loader
+    split_meta = {
+        "fold": fold,
+        "num_folds": num_folds,
+        "train_indices": tr_idx,
+        "val_indices": va_idx,
+        "train_names": [pairs[i].name for i in tr_idx],
+        "val_names": [pairs[i].name for i in va_idx],
+    }
+    return train_loader, val_loader, split_meta
 
 
 def evaluate(model, loader, device):
@@ -143,10 +190,33 @@ def evaluate(model, loader, device):
     return metrics
 
 
+def predict_loader(model, loader, device):
+    model.eval()
+    names: List[str] = []
+    y_true: List[float] = []
+    y_pred: List[float] = []
+
+    with torch.no_grad():
+        for batch in loader:
+            ref = batch["ref"].to(device, non_blocking=True)
+            dist = batch["dist"].to(device, non_blocking=True)
+            _, pred = model(ref, dist)
+            names.extend(list(batch["name"]))
+            y_true.extend(batch["score"].cpu().numpy().tolist())
+            y_pred.extend(pred.detach().cpu().numpy().tolist())
+
+    return names, np.asarray(y_true, dtype=np.float32), np.asarray(y_pred, dtype=np.float32)
+
+
 def main():
     args = parse_args()
     cfg = load_config(args.config)
     set_seed(cfg["seed"])
+
+    fold_tag = f"fold_{args.fold}" if args.fold >= 0 else "holdout"
+    base_work_dir = cfg["output"]["work_dir"]
+    if args.fold >= 0:
+        cfg["output"]["work_dir"] = os.path.join(base_work_dir, fold_tag)
 
     os.makedirs(cfg["output"]["work_dir"], exist_ok=True)
     ckpt_dir = os.path.join(cfg["output"]["work_dir"], "checkpoints")
@@ -157,17 +227,21 @@ def main():
     logger.info("Seed = %d", cfg["seed"])
     logger.info("Debug config = %s", cfg.get("debug", {}))
 
-    train_loader, val_loader = build_dataloaders(cfg)
+    train_loader, val_loader, split_meta = build_dataloaders(cfg, fold=args.fold, num_folds=args.num_folds)
+    logger.info("Split mode = %s | fold = %s | num_folds = %d", "kfold" if args.fold >= 0 else "holdout", args.fold, args.num_folds)
     logger.info("Train size = %d | Val size = %d", len(train_loader.dataset), len(val_loader.dataset))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    structure_backbone = cfg["model"].get("structure_backbone", cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"))
     logger.info(
-        "Building model backbones: Swin=%s, CLIP=%s (first run may download pretrained weights)",
-        cfg["model"]["swin_name"],
+        "Building model backbones: Structure=%s, CLIP=%s (first run may download pretrained weights)",
+        structure_backbone,
         cfg["model"]["clip_name"],
     )
     model = SiameseSemanticIQA(
         num_classes=cfg["model"]["num_classes"],
+        structure_backbone=structure_backbone,
+        ablation_mode=cfg["model"].get("ablation_mode", "full"),
         swin_name=cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"),
         clip_name=cfg["model"].get("clip_name", "clip_vit_b32"),
         freeze_backbones=cfg["model"].get("freeze_backbones", True),
@@ -199,6 +273,7 @@ def main():
     mse_loss = nn.MSELoss()
 
     best_score = -1.0
+    best_metrics = None
     start_epoch = 1
     resume_path = args.resume
     if not resume_path and cfg["train"].get("auto_resume", True):
@@ -306,6 +381,7 @@ def main():
 
         if metrics["score"] > best_score:
             best_score = metrics["score"]
+            best_metrics = metrics
             best_ckpt_path = os.path.join(ckpt_dir, "best.pth")
             torch.save(last_ckpt, best_ckpt_path)
             if not os.path.exists(best_ckpt_path) or os.path.getsize(best_ckpt_path) == 0:
@@ -315,8 +391,37 @@ def main():
             logger.info("Dry-run mode: stopping early.")
             break
 
+    best_metrics_payload = {
+        "best_score": best_score,
+        "best_metrics": best_metrics,
+        "split_mode": "kfold" if args.fold >= 0 else "holdout",
+        "fold": args.fold,
+        "num_folds": args.num_folds,
+        "train_size": len(split_meta["train_indices"]),
+        "val_size": len(split_meta["val_indices"]),
+    }
     with open(os.path.join(cfg["output"]["work_dir"], "best_metrics.json"), "w", encoding="utf-8") as f:
-        json.dump({"best_score": best_score}, f, indent=2)
+        json.dump(best_metrics_payload, f, indent=2)
+
+    if args.fold >= 0:
+        best_ckpt_path = os.path.join(ckpt_dir, "best.pth")
+        if os.path.exists(best_ckpt_path):
+            state = torch.load(best_ckpt_path, map_location=device)
+            model.load_state_dict(state["model"])
+        names, y_true, y_pred = predict_loader(model, val_loader, device)
+        oof_metrics = compute_metrics(y_true, y_pred)
+        oof_csv_path = os.path.join(cfg["output"]["work_dir"], "oof_val_predictions.csv")
+        with open(oof_csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["img_name", "y_true", "y_pred", "fold"])
+            for name, true_score, pred_score in zip(names, y_true.tolist(), y_pred.tolist()):
+                writer.writerow([name, float(true_score), float(pred_score), args.fold])
+
+        with open(os.path.join(cfg["output"]["work_dir"], "oof_metrics.json"), "w", encoding="utf-8") as f:
+            json.dump(oof_metrics, f, indent=2)
+        logger.info("Saved fold OOF predictions: %s", oof_csv_path)
+        logger.info("Fold OOF metrics | score %.4f | srocc %.4f | plcc %.4f", oof_metrics["score"], oof_metrics["srocc"], oof_metrics["plcc"])
+
     logger.info("Training finished. Best score = %.4f", best_score)
 
 

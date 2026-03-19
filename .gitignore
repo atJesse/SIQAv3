@@ -16,6 +16,11 @@ venv/
 # Training outputs
 workdirs/
 #submission/
+BAPPS2afc/results*/
+PieAPP2afc/results*/
+paperFigExample/*.csv
+paperFigExample/*.json
+
 *.log
 
 # Model checkpoints / weights

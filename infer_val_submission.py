@@ -16,8 +16,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/siqa_base.yaml")
     parser.add_argument("--ckpt", type=str, required=True)
-    parser.add_argument("--ref_dir", type=str, default="/data/SIQA/Data/Val/Val/Ref")
-    parser.add_argument("--dist_dir", type=str, default="/data/SIQA/Data/Val/Val/Dist")
+    parser.add_argument("--ref_dir", type=str, default="/data/dataset/LoViF/Val/Ref")
+    parser.add_argument("--dist_dir", type=str, default="/data/dataset/LoViF/Val/Dist")
     parser.add_argument("--out_dir", type=str, default="/data/SIQA/submission")
     parser.add_argument("--order_file", type=str, default="", help="Optional file listing required image order (one name per line or first CSV column).")
     return parser.parse_args()
@@ -64,8 +64,11 @@ def main():
     transform = build_eval_transform(cfg["data"]["image_size"], mean=mean, std=std)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    structure_backbone = cfg["model"].get("structure_backbone", cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"))
     model = SiameseSemanticIQA(
         num_classes=cfg["model"]["num_classes"],
+        structure_backbone=structure_backbone,
+        ablation_mode=cfg["model"].get("ablation_mode", "full"),
         swin_name=cfg["model"].get("swin_name", "swin_tiny_patch4_window7_224"),
         clip_name=cfg["model"].get("clip_name", "clip_vit_b32"),
         freeze_backbones=False,
@@ -113,7 +116,7 @@ def main():
         f.write(f"runtime per video [s] : {runtime_per_image:.4f}\n")
         f.write(f"CPU[1] / GPU[0] : {0 if torch.cuda.is_available() else 1}\n")
         f.write("Extra Data [1] / No Extra Data [0] : 1\n")
-        f.write("Other description : Dual-backbone Siamese IQA (Swin+CLIP) with cosine semantic feature and semantic gate veto.\n")
+        f.write("Other description : Dual-backbone Siamese IQA (Swin/DINOv3 + CLIP) with cosine semantic feature and semantic gate veto.\n")
 
     print(f"Saved: {out_csv}")
     print(f"Saved: {out_txt}")

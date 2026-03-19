@@ -1,4 +1,4 @@
-# SIQA Dual-Backbone FR-IQA (Swin + CLIP)
+# SIQA Dual-Backbone FR-IQA (Swin/DINOv3 + CLIP)
 
 ## English
 
@@ -6,7 +6,9 @@ This project is a semantic full-reference IQA pipeline with very small training 
 
 ### 1) Core Architecture (Teacher-Requested)
 Implemented in `siqa/model.py` as a Siamese network with **two frozen pretrained backbones**:
-- Backbone A (structure-aware): `Swin-T` (`swin_tiny_patch4_window7_224`, ImageNet pretrained)
+- Backbone A (structure-aware): configurable
+  - `DINOv3-Base` (`vit_base_patch16_dinov3`, default)
+  - `Swin-T` (`swin_tiny_patch4_window7_224`, rollback option)
 - Backbone B (semantic-aware): `CLIP Vision` (default `clip_vit_l14_336`, can switch to `clip_vit_b32`)
 
 For each pair `(Ref, Dist)`, model extracts:
@@ -42,7 +44,7 @@ Now supports rollback-friendly gate modes:
 - `semantic_gate_mode: hard` → single-threshold hard veto
 - `semantic_gate_mode: soft` → dual-threshold soft gate (recommended)
 
-Soft gate behavior (default):
+Soft gate behavior (when `semantic_gate_mode: soft`):
 - `S_cos < semantic_gate_threshold` (e.g., `0.4`) → hard veto to class `0`
 - `semantic_gate_threshold <= S_cos < semantic_gate_high_threshold` (e.g., `0.5`) → soft logit penalty toward lower scores
 - `S_cos >= semantic_gate_high_threshold` → no gate intervention
@@ -67,13 +69,27 @@ Because servers in China may have unstable external access:
   - `model.clip_local_files_only: true`
 - Swin supports local checkpoint loading:
   - `model.swin_local_path`
+- DINOv3 (timm) supports online pretrained loading (default) and cache reuse
 
 If no local files are given:
 - CLIP may require `HF_ENDPOINT=https://hf-mirror.com`
 - Swin may download from `torchvision` model hub once
+- DINOv3 may download via `timm`/HuggingFace cache on first run
+
+Latest verified defaults in `configs/siqa_base.yaml`:
+- `model.structure_backbone: vit_base_patch16_dinov3`
+- `model.swin_local_path: ""` (empty = allow automatic Swin download)
+- `model.clip_local_dir: ""`
+- `model.clip_local_files_only: false` (allow online CLIP download)
+
+Important note:
+- One-line switch back to Swin: set `model.structure_backbone: swin_tiny_patch4_window7_224`.
+- `HF_ENDPOINT` affects HuggingFace downloads (CLIP and most timm DINOv3 checkpoints), but not torchvision Swin download.
 
 ### 6) New Model Config Keys
 In `configs/siqa_base.yaml`:
+- `model.structure_backbone`
+- `model.ablation_mode` (`full` / `clip_only` / `structure_only`)
 - `model.swin_name`
 - `model.clip_name`
 - `model.freeze_backbones`
@@ -104,18 +120,92 @@ Train:
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
 
+One-line rollback to Swin in config:
+```yaml
+model:
+  structure_backbone: swin_tiny_patch4_window7_224
+```
+
+Ablation by config only:
+```yaml
+model:
+  ablation_mode: full          # full model (default)
+  # ablation_mode: clip_only   # semantic-only (CLIP)
+  # ablation_mode: structure_only  # structural-only (DINOv3/Swin)
+```
+
+One-click ablation suite (Baseline + A1/A2/A3/A4):
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=0
+bash run_ablation_suite.sh configs/siqa_base.yaml
+```
+
+Outputs are saved under `${output.work_dir}_ablation_suite`:
+- per experiment: `kfold_summary.json`, `kfold_prediction_mean.csv`, `kfold_prediction_weighted.csv`
+- global summary table: `ablation_summary.csv` and `ablation_summary.md`
+
+Run stratified 5-fold training + OOF + ensemble in one command:
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=0
+bash run_kfold.sh configs/siqa_base.yaml
+```
+
+K-fold options:
+- Default uses `--num_folds 5` and stratification by `score_cls`.
+- You can run a single fold manually:
+```bash
+python3 train_siqa.py --config configs/siqa_base.yaml --num_folds 5 --fold 0
+```
+- To use weighted ensemble with custom fold weights:
+```bash
+FOLD_WEIGHTS=0.10,0.20,0.25,0.20,0.25 bash run_kfold.sh configs/siqa_base.yaml
+```
+
+K-fold outputs (under `output.work_dir`):
+- `fold_i/checkpoints/best.pth`: best checkpoint for fold `i`
+- `fold_i/oof_val_predictions.csv`: fold validation predictions
+- `kfold_oof_predictions.csv`: merged OOF predictions from all folds
+- `kfold_summary.json`: OOF metrics and ensemble metadata
+- `kfold_prediction_mean.csv`: mean-ensemble inference predictions
+- `kfold_prediction_weighted.csv`: weighted-ensemble inference predictions
+
 Train with HF mirror (for China):
 ```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
 export HF_ENDPOINT=https://hf-mirror.com
-export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_HUB_ENABLE_HF_TRANSFER=0
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
+
+Optional fast transfer:
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+pip install hf_transfer
+export HF_HUB_ENABLE_HF_TRANSFER=1
+```
+
+Troubleshooting:
+- `FileNotFoundError: Swin local checkpoint not found ...` means `model.swin_local_path` points to a non-existing local file. Set it to empty (`""`) for auto-download, or provide a valid local path.
+- `HF_HUB_ENABLE_HF_TRANSFER=1` requires `hf_transfer` package installed.
+- Older `transformers` may not support `interpolate_pos_encoding`; code now has backward-compatible handling.
+- If DINOv3 preload is slow/fails in China, keep `HF_ENDPOINT=https://hf-mirror.com` and retry.
 
 Submission inference:
 ```bash
 python3 infer_val_submission.py \
   --config configs/siqa_base.yaml \
-  --ckpt /data/SIQAdn2/workdirs/siqa_dual_swin_clip/checkpoints/best.pth \
+  --ckpt /data/SIQAdn2/workdirs/siqa_dual_dinov3_clip/fold_1/checkpoints/best.pth \
   --out_dir /data/SIQAdn2/submission
 ```
 
@@ -139,8 +229,8 @@ For end-score calibration (especially to stretch both extremes near `0` and `5` 
 
 ```bash
 python3 tools/logistic_5pl_mapping.py \
-  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_swin_clip/train_predictions.csv \
-  --label_xlsx /data/SIQA/Data/Train/Train/Train_scores.xlsx \
+  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_dinov3_clip/kfold_oof_predictions.csv \
+  --label_xlsx /data/dataset/LoViF/Train/Train_scores.xlsx \
   --test_pred_csv /data/SIQAdn2/submission/prediction.csv \
   --out_csv /data/SIQAdn2/submission/prediction_mapped.csv \
   --out_json /data/SIQAdn2/submission/logistic_5pl_params.json
@@ -158,7 +248,9 @@ Outputs:
 
 ### 1) 按老师意见实现的核心架构
 `siqa/model.py` 已改为 **双骨干孪生网络**，并默认冻结两套预训练参数：
-- Backbone A（结构感知）：`Swin-T`（`swin_tiny_patch4_window7_224`，ImageNet 预训练）
+- Backbone A（结构感知）：可配置
+  - `DINOv3-Base`（`vit_base_patch16_dinov3`，当前默认）
+  - `Swin-T`（`swin_tiny_patch4_window7_224`，可一键回退）
 - Backbone B（语义对齐）：`CLIP Vision`（默认 `clip_vit_l14_336`，可改 `clip_vit_b32`）
 
 对每个 `(Ref, Dist)`，提取四组特征：
@@ -196,7 +288,7 @@ $$
 - `semantic_gate_mode: hard`：单阈值硬门控
 - `semantic_gate_mode: soft`：双阈值软门控（推荐）
 
-软门控（默认）逻辑：
+软门控逻辑（当 `semantic_gate_mode: soft` 时）：
 - `S_cos < semantic_gate_threshold`（如 `0.4`）：执行硬否决，强压到 `0` 分方向
 - `semantic_gate_threshold <= S_cos < semantic_gate_high_threshold`（如 `0.5`）：执行软惩罚，温和下压分数
 - `S_cos >= semantic_gate_high_threshold`：不干预
@@ -221,13 +313,27 @@ $$
   - `model.clip_local_files_only: true`
 - Swin 本地权重：
   - `model.swin_local_path`
+- DINOv3（timm）默认在线预训练加载，可复用本地缓存
 
 若未提供本地文件：
 - CLIP 建议设置 `HF_ENDPOINT=https://hf-mirror.com`
 - Swin 可能在首次从 `torchvision` 下载一次权重
+- DINOv3 可能在首次通过 `timm` / HuggingFace 缓存下载权重
+
+当前已验证可用的默认配置（`configs/siqa_base.yaml`）：
+- `model.structure_backbone: vit_base_patch16_dinov3`
+- `model.swin_local_path: ""`（留空表示允许自动下载 Swin）
+- `model.clip_local_dir: ""`
+- `model.clip_local_files_only: false`（允许在线下载 CLIP）
+
+注意：
+- 一行切回 Swin：把 `model.structure_backbone` 改成 `swin_tiny_patch4_window7_224`。
+- `HF_ENDPOINT` 会影响 HuggingFace 下载（CLIP 和大多数 timm DINOv3 权重），但不影响 `torchvision` 的 Swin 下载。
 
 ### 6) 新增配置项
 `configs/siqa_base.yaml` 已新增：
+- `model.structure_backbone`
+- `model.ablation_mode`（`full` / `clip_only` / `structure_only`）
 - `model.swin_name`
 - `model.clip_name`
 - `model.freeze_backbones`
@@ -258,18 +364,92 @@ pip install -r requirements.txt
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
 
+配置里一行切回 Swin：
+```yaml
+model:
+  structure_backbone: swin_tiny_patch4_window7_224
+```
+
+仅通过配置做消融：
+```yaml
+model:
+  ablation_mode: full             # 默认：全模型
+  # ablation_mode: clip_only      # 仅语义分支（CLIP）
+  # ablation_mode: structure_only # 仅结构分支（DINOv3/Swin）
+```
+
+一键跑完整消融套件（Baseline + A1/A2/A3/A4）：
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=0
+bash run_ablation_suite.sh configs/siqa_base.yaml
+```
+
+结果保存在 `${output.work_dir}_ablation_suite`：
+- 每组实验：`kfold_summary.json`、`kfold_prediction_mean.csv`、`kfold_prediction_weighted.csv`
+- 总表：`ablation_summary.csv` 和 `ablation_summary.md`
+
+一键运行 5 折分层训练 + OOF + 集成：
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENABLE_HF_TRANSFER=0
+bash run_kfold.sh configs/siqa_base.yaml
+```
+
+K 折参数说明：
+- 默认 `--num_folds 5`，按 `score_cls` 分层。
+- 单独跑某一折：
+```bash
+python3 train_siqa.py --config configs/siqa_base.yaml --num_folds 5 --fold 0
+```
+- 自定义加权集成权重：
+```bash
+FOLD_WEIGHTS=0.10,0.20,0.25,0.20,0.25 bash run_kfold.sh configs/siqa_base.yaml
+```
+
+K 折输出目录（位于 `output.work_dir` 下）：
+- `fold_i/checkpoints/best.pth`：第 `i` 折最优模型
+- `fold_i/oof_val_predictions.csv`：第 `i` 折验证预测
+- `kfold_oof_predictions.csv`：全折合并 OOF 预测
+- `kfold_summary.json`：OOF 指标与集成信息
+- `kfold_prediction_mean.csv`：均值集成结果
+- `kfold_prediction_weighted.csv`：加权集成结果
+
 国内镜像训练：
 ```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+cd /data/SIQAv3
 export HF_ENDPOINT=https://hf-mirror.com
-export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_HUB_ENABLE_HF_TRANSFER=0
 python3 train_siqa.py --config configs/siqa_base.yaml
 ```
+
+可选加速下载：
+```bash
+source /data/miniforge3/etc/profile.d/conda.sh
+conda activate lovif
+pip install hf_transfer
+export HF_HUB_ENABLE_HF_TRANSFER=1
+```
+
+常见报错说明：
+- `FileNotFoundError: Swin local checkpoint not found ...`：说明 `model.swin_local_path` 指向了不存在的本地文件。请改为空字符串（`""`）走自动下载，或改成正确的本地权重路径。
+- 设置 `HF_HUB_ENABLE_HF_TRANSFER=1` 时，必须先安装 `hf_transfer`。
+- 旧版本 `transformers` 可能不支持 `interpolate_pos_encoding` 参数，代码已做向后兼容处理。
+- 若 DINOv3 在国内下载慢或失败，请保留 `HF_ENDPOINT=https://hf-mirror.com` 后重试。
 
 提交式推理：
 ```bash
 python3 infer_val_submission.py \
   --config configs/siqa_base.yaml \
-  --ckpt /data/SIQAdn2/workdirs/siqa_dual_swin_clip/checkpoints/best.pth \
+  --ckpt /data/SIQAdn2/workdirs/siqa_dual_dinov3_clip/fold_1/checkpoints/best.pth \
   --out_dir /data/SIQAdn2/submission
 ```
 
@@ -293,8 +473,8 @@ python3 tools/analyze_clip_semantic_distribution.py \
 
 ```bash
 python3 tools/logistic_5pl_mapping.py \
-  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_swin_clip/train_predictions.csv \
-  --label_xlsx /data/SIQA/Data/Train/Train/Train_scores.xlsx \
+  --train_pred_csv /data/SIQAdn2/workdirs/siqa_dual_dinov3_clip/kfold_oof_predictions.csv \
+  --label_xlsx /data/dataset/LoViF/Train/Train_scores.xlsx \
   --test_pred_csv /data/SIQAdn2/submission/prediction.csv \
   --out_csv /data/SIQAdn2/submission/prediction_mapped.csv \
   --out_json /data/SIQAdn2/submission/logistic_5pl_params.json
